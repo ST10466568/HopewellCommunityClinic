@@ -1,0 +1,387 @@
+import React, { useState } from 'react';
+import { Heart, Eye, EyeOff, LogIn, UserPlus } from 'lucide-react';
+import { Button } from './ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Badge } from './ui/badge';
+
+interface AuthPageProps {
+  onLogin: (email: string, password: string) => Promise<void>;
+  onRegister: (userData: any) => Promise<void>;
+  isLoading: boolean;
+  error: string | null;
+  clearError: () => void;
+}
+
+const AuthPage: React.FC<AuthPageProps> = ({
+  onLogin,
+  onRegister,
+  isLoading,
+  error,
+  clearError
+}) => {
+  const [isLoginMode, setIsLoginMode] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    confirmPassword: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    dateOfBirth: '',
+    address: ''
+  });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Clear error when user starts typing
+    if (error) clearError();
+    if (formErrors[name]) {
+      setFormErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.email) {
+      errors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      errors.email = 'Email is invalid';
+    }
+
+    if (!formData.password) {
+      errors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+
+    if (!isLoginMode) {
+      if (!formData.firstName) errors.firstName = 'First name is required';
+      if (!formData.lastName) errors.lastName = 'Last name is required';
+      if (!formData.phone) errors.phone = 'Phone number is required';
+      if (!formData.dateOfBirth) errors.dateOfBirth = 'Date of birth is required';
+      if (!formData.address) errors.address = 'Address is required';
+      
+      if (formData.password !== formData.confirmPassword) {
+        errors.confirmPassword = 'Passwords do not match';
+      }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) return;
+
+    try {
+      if (isLoginMode) {
+        await onLogin(formData.email, formData.password);
+      } else {
+        await onRegister(formData);
+      }
+    } catch (err) {
+      // Error handling is done in parent component
+    }
+  };
+
+  const toggleMode = () => {
+    setIsLoginMode(!isLoginMode);
+    setFormData({
+      email: '',
+      password: '',
+      confirmPassword: '',
+      firstName: '',
+      lastName: '',
+      phone: '',
+      dateOfBirth: '',
+      address: ''
+    });
+    setFormErrors({});
+    clearError();
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center space-x-2 mb-4">
+            <Heart className="h-8 w-8 text-primary heartbeat" />
+            <span className="text-2xl font-bold text-foreground">Hopewell Clinic</span>
+          </div>
+          <p className="text-muted-foreground">
+            {isLoginMode ? 'Welcome back to your health journey' : 'Join our healthcare community'}
+          </p>
+        </div>
+
+        {/* Auth Card */}
+        <Card className="medical-card">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl">
+              {isLoginMode ? 'Sign In' : 'Create Account'}
+            </CardTitle>
+            <CardDescription>
+              {isLoginMode 
+                ? 'Access your patient portal and manage your appointments'
+                : 'Get started with comprehensive healthcare services'
+              }
+            </CardDescription>
+          </CardHeader>
+          
+          <CardContent>
+            {/* Mode Toggle */}
+            <div className="flex bg-muted rounded-lg p-1 mb-6">
+              <button
+                type="button"
+                onClick={() => !isLoginMode && toggleMode()}
+                className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md transition-colors ${
+                  isLoginMode 
+                    ? 'bg-background text-foreground shadow-sm' 
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <LogIn className="h-4 w-4" />
+                <span>Sign In</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => isLoginMode && toggleMode()}
+                className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md transition-colors ${
+                  !isLoginMode 
+                    ? 'bg-background text-foreground shadow-sm' 
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <UserPlus className="h-4 w-4" />
+                <span>Sign Up</span>
+              </button>
+            </div>
+
+            {/* Error Display */}
+            {error && (
+              <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Registration Fields */}
+              {!isLoginMode && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="firstName">First Name</Label>
+                      <Input
+                        id="firstName"
+                        name="firstName"
+                        type="text"
+                        value={formData.firstName}
+                        onChange={handleInputChange}
+                        className={formErrors.firstName ? 'border-destructive' : ''}
+                        placeholder="John"
+                      />
+                      {formErrors.firstName && (
+                        <p className="text-sm text-destructive mt-1">{formErrors.firstName}</p>
+                      )}
+                    </div>
+                    <div>
+                      <Label htmlFor="lastName">Last Name</Label>
+                      <Input
+                        id="lastName"
+                        name="lastName"
+                        type="text"
+                        value={formData.lastName}
+                        onChange={handleInputChange}
+                        className={formErrors.lastName ? 'border-destructive' : ''}
+                        placeholder="Doe"
+                      />
+                      {formErrors.lastName && (
+                        <p className="text-sm text-destructive mt-1">{formErrors.lastName}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input
+                      id="phone"
+                      name="phone"
+                      type="tel"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      className={formErrors.phone ? 'border-destructive' : ''}
+                      placeholder="(555) 123-4567"
+                    />
+                    {formErrors.phone && (
+                      <p className="text-sm text-destructive mt-1">{formErrors.phone}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                    <Input
+                      id="dateOfBirth"
+                      name="dateOfBirth"
+                      type="date"
+                      value={formData.dateOfBirth}
+                      onChange={handleInputChange}
+                      className={formErrors.dateOfBirth ? 'border-destructive' : ''}
+                    />
+                    {formErrors.dateOfBirth && (
+                      <p className="text-sm text-destructive mt-1">{formErrors.dateOfBirth}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="address">Address</Label>
+                    <Input
+                      id="address"
+                      name="address"
+                      type="text"
+                      value={formData.address}
+                      onChange={handleInputChange}
+                      className={formErrors.address ? 'border-destructive' : ''}
+                      placeholder="123 Main St, City, State 12345"
+                    />
+                    {formErrors.address && (
+                      <p className="text-sm text-destructive mt-1">{formErrors.address}</p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Common Fields */}
+              <div>
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  className={formErrors.email ? 'border-destructive' : ''}
+                  placeholder="john.doe@example.com"
+                />
+                {formErrors.email && (
+                  <p className="text-sm text-destructive mt-1">{formErrors.email}</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    className={formErrors.password ? 'border-destructive pr-10' : 'pr-10'}
+                    placeholder="Enter your password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {formErrors.password && (
+                  <p className="text-sm text-destructive mt-1">{formErrors.password}</p>
+                )}
+              </div>
+
+              {!isLoginMode && (
+                <div>
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type="password"
+                    value={formData.confirmPassword}
+                    onChange={handleInputChange}
+                    className={formErrors.confirmPassword ? 'border-destructive' : ''}
+                    placeholder="Confirm your password"
+                  />
+                  {formErrors.confirmPassword && (
+                    <p className="text-sm text-destructive mt-1">{formErrors.confirmPassword}</p>
+                  )}
+                </div>
+              )}
+
+              <Button 
+                type="submit" 
+                className="w-full" 
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-background border-t-transparent rounded-full animate-spin" />
+                    <span>Processing...</span>
+                  </div>
+                ) : (
+                  isLoginMode ? 'Sign In' : 'Create Account'
+                )}
+              </Button>
+            </form>
+
+            {/* Demo Credentials */}
+            {isLoginMode && (
+              <div className="mt-6 p-4 bg-muted/50 rounded-lg">
+                <p className="text-sm text-muted-foreground mb-2">Demo Credentials:</p>
+                <div className="space-y-2 text-xs">
+                  <div className="border-b border-muted pb-2">
+                    <p className="font-medium text-foreground">Patient Login:</p>
+                    <p><strong>Email:</strong> patient@hopewell.com</p>
+                    <p><strong>Password:</strong> Patient@123</p>
+                  </div>
+                  <div className="border-b border-muted pb-2">
+                    <p className="font-medium text-foreground">Doctor Login:</p>
+                    <p><strong>Email:</strong> doctor@hopewell.com</p>
+                    <p><strong>Password:</strong> Doctor@123</p>
+                  </div>
+                  <div className="border-b border-muted pb-2">
+                    <p className="font-medium text-foreground">Nurse Login:</p>
+                    <p><strong>Email:</strong> nurse@hopewell.com</p>
+                    <p><strong>Password:</strong> Nurse@123</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">Admin Login:</p>
+                    <p><strong>Email:</strong> admin@hopewell.com</p>
+                    <p><strong>Password:</strong> Admin@123</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Footer */}
+        <div className="text-center mt-8">
+          <p className="text-sm text-muted-foreground">
+            By continuing, you agree to our{' '}
+            <a href="#" className="text-primary hover:underline">Terms of Service</a>
+            {' '}and{' '}
+            <a href="#" className="text-primary hover:underline">Privacy Policy</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AuthPage;
+
+
+
