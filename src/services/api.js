@@ -728,6 +728,25 @@ export const doctorAPI = {
       throw error.response?.data || error.message;
     }
   },
+
+  // Admin schedule management functions (using public endpoints)
+  getShiftSchedulePublic: async (doctorId) => {
+    try {
+      const response = await api.get(`/DoctorSchedule/${doctorId}/shifts`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  updateShiftSchedulePublic: async (doctorId, shiftData) => {
+    try {
+      const response = await api.put(`/DoctorSchedule/${doctorId}/shifts`, shiftData);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
 };
 
 // Admin API

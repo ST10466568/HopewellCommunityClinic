@@ -205,15 +205,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.log('✅ Loaded shift schedule:', schedule);
     } catch (error) {
       console.error('❌ Error loading shift schedule:', error);
-      // Initialize with default schedule if API fails
-      const defaultSchedule = daysOfWeek.map(day => ({
-        dayOfWeek: day,
-        startTime: '09:00',
-        endTime: '17:00',
-        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
-      }));
-      setDoctorShiftSchedule(defaultSchedule);
-      setNewShiftSchedule(defaultSchedule);
+      
+      // Try public endpoint as fallback
+      try {
+        console.log('🔄 Trying public endpoint as fallback...');
+        const publicSchedule = await doctorAPI.getShiftSchedulePublic(doctorId);
+        setDoctorShiftSchedule(publicSchedule);
+        setNewShiftSchedule(publicSchedule);
+        console.log('✅ Loaded schedule from public endpoint:', publicSchedule);
+      } catch (publicError) {
+        console.error('❌ Public endpoint also failed:', publicError);
+        // Initialize with default schedule if both fail
+        const defaultSchedule = daysOfWeek.map(day => ({
+          dayOfWeek: day,
+          startTime: '09:00',
+          endTime: '17:00',
+          isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+        }));
+        setDoctorShiftSchedule(defaultSchedule);
+        setNewShiftSchedule(defaultSchedule);
+      }
     }
   };
 
@@ -235,8 +246,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setSelectedDoctor(null);
     } catch (error) {
       console.error('❌ Error updating shift schedule:', error);
-      // Still update local state for immediate feedback
-      setDoctorShiftSchedule(newShiftSchedule);
+      
+      // Check if it's an authentication error
+      if (error.response?.status === 401) {
+        console.log('⚠️ Authentication failed - admin may not have proper permissions');
+        console.log('💡 Schedule changes will be saved locally but not persisted to database');
+        
+        // Still update local state for immediate feedback
+        setDoctorShiftSchedule(newShiftSchedule);
+        
+        // Show user-friendly message
+        alert('Schedule updated locally, but could not save to database. Please check admin permissions.');
+        
+        // Close modal after local update
+        setShowDoctorScheduleModal(false);
+        setSelectedDoctor(null);
+      } else {
+        // For other errors, still update local state
+        setDoctorShiftSchedule(newShiftSchedule);
+        
+        // Close modal after local update
+        setShowDoctorScheduleModal(false);
+        setSelectedDoctor(null);
+      }
     } finally {
       setIsUpdatingSchedule(false);
     }
