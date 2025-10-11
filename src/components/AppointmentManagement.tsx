@@ -589,7 +589,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               </div>
               <div>
                 <Label htmlFor="status">Status *</Label>
-                <Select value={editForm.status} onValueChange={(value) => setEditForm({...editForm, status: value})}>
+                <Select value={editForm.status} onValueChange={(value: string) => setEditForm({...editForm, status: value})}>
                   <SelectTrigger className={validationErrors.status ? 'border-destructive' : ''}>
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
@@ -638,7 +638,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="doctorId">Doctor *</Label>
-                <Select value={editForm.doctorId} onValueChange={(value) => setEditForm({...editForm, doctorId: value})}>
+                <Select value={editForm.doctorId} onValueChange={(value: string) => setEditForm({...editForm, doctorId: value})}>
                   <SelectTrigger className={validationErrors.doctorId ? 'border-destructive' : ''}>
                     <SelectValue placeholder="Select doctor" />
                   </SelectTrigger>
@@ -656,7 +656,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               </div>
               <div>
                 <Label htmlFor="serviceId">Service *</Label>
-                <Select value={editForm.serviceId} onValueChange={(value) => setEditForm({...editForm, serviceId: value})}>
+                <Select value={editForm.serviceId} onValueChange={(value: string) => setEditForm({...editForm, serviceId: value})}>
                   <SelectTrigger className={validationErrors.serviceId ? 'border-destructive' : ''}>
                     <SelectValue placeholder="Select service" />
                   </SelectTrigger>
