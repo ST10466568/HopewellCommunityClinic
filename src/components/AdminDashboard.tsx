@@ -204,9 +204,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setNewShiftSchedule(schedule);
       console.log('✅ Loaded shift schedule:', schedule);
     } catch (error) {
-      console.log('⚠️ Shift schedule API not available yet, using defaults:', error);
+      console.error('❌ Error loading shift schedule:', error);
       // Initialize with default schedule if API fails
-      // This prevents 401 errors from logging out the admin
       const defaultSchedule = daysOfWeek.map(day => ({
         dayOfWeek: day,
         startTime: '09:00',
@@ -235,14 +234,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setShowDoctorScheduleModal(false);
       setSelectedDoctor(null);
     } catch (error) {
-      console.log('⚠️ Shift schedule update API not available yet, updating locally:', error);
+      console.error('❌ Error updating shift schedule:', error);
       // Still update local state for immediate feedback
-      // This prevents 401 errors from logging out the admin
       setDoctorShiftSchedule(newShiftSchedule);
-      
-      // Close modal after local update
-      setShowDoctorScheduleModal(false);
-      setSelectedDoctor(null);
     } finally {
       setIsUpdatingSchedule(false);
     }
@@ -252,24 +246,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleDoctorSelection = async (doctor: Doctor) => {
     setSelectedDoctor(doctor);
     setShowDoctorScheduleModal(true);
-    
-    // Initialize with default schedule first, then try to load from API
-    const defaultSchedule = daysOfWeek.map(day => ({
-      dayOfWeek: day,
-      startTime: '09:00',
-      endTime: '17:00',
-      isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
-    }));
-    setDoctorShiftSchedule(defaultSchedule);
-    setNewShiftSchedule(defaultSchedule);
-    
-    // Try to load actual schedule from API (non-blocking)
-    try {
-      await loadDoctorShiftSchedule(doctor.id);
-    } catch (error) {
-      // API call failed, but we already have defaults set
-      console.log('⚠️ Using default schedule, API not available yet');
-    }
+    await loadDoctorShiftSchedule(doctor.id);
   };
 
   const formatDate = (dateString: string) => {
@@ -1495,12 +1472,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <CardDescription>
                 Set the weekly shift schedule for this doctor
               </CardDescription>
-              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  <strong>Note:</strong> Backend API for schedule management is not yet implemented. 
-                  Changes will be saved locally for demonstration purposes.
-                </p>
-              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
