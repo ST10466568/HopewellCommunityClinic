@@ -203,9 +203,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       // Try admin-specific endpoint first
       try {
         const schedule = await adminAPI.getDoctorShiftSchedule(doctorId);
-        setDoctorShiftSchedule(schedule);
-        setNewShiftSchedule(schedule);
-        console.log('✅ Loaded shift schedule via admin endpoint:', schedule);
+        // Ensure schedule is an array
+        const scheduleArray = Array.isArray(schedule) ? schedule : [];
+        setDoctorShiftSchedule(scheduleArray);
+        setNewShiftSchedule(scheduleArray);
+        console.log('✅ Loaded shift schedule via admin endpoint:', scheduleArray);
         return;
       } catch (adminError) {
         console.log('⚠️ Admin endpoint failed, trying doctor endpoint...');
@@ -213,9 +215,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         // Try doctor endpoint as fallback
         try {
           const schedule = await doctorAPI.getShiftSchedule(doctorId);
-          setDoctorShiftSchedule(schedule);
-          setNewShiftSchedule(schedule);
-          console.log('✅ Loaded shift schedule via doctor endpoint:', schedule);
+          // Ensure schedule is an array
+          const scheduleArray = Array.isArray(schedule) ? schedule : [];
+          setDoctorShiftSchedule(scheduleArray);
+          setNewShiftSchedule(scheduleArray);
+          console.log('✅ Loaded shift schedule via doctor endpoint:', scheduleArray);
           return;
         } catch (doctorError) {
           console.log('⚠️ Doctor endpoint failed, trying public endpoint...');
@@ -223,9 +227,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           // Try public endpoint as final fallback
           try {
             const publicSchedule = await doctorAPI.getShiftSchedulePublic(doctorId);
-            setDoctorShiftSchedule(publicSchedule);
-            setNewShiftSchedule(publicSchedule);
-            console.log('✅ Loaded schedule from public endpoint:', publicSchedule);
+            // Ensure schedule is an array
+            const scheduleArray = Array.isArray(publicSchedule) ? publicSchedule : [];
+            setDoctorShiftSchedule(scheduleArray);
+            setNewShiftSchedule(scheduleArray);
+            console.log('✅ Loaded schedule from public endpoint:', scheduleArray);
             return;
           } catch (publicError) {
             console.error('❌ All endpoints failed:', publicError);
@@ -365,8 +371,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Update newShiftSchedule when modal opens to ensure it has current data
   useEffect(() => {
     if (showDoctorScheduleModal && selectedDoctor) {
-      if (doctorShiftSchedule.length > 0) {
-        setNewShiftSchedule(doctorShiftSchedule);
+      // Ensure doctorShiftSchedule is an array
+      const scheduleArray = Array.isArray(doctorShiftSchedule) ? doctorShiftSchedule : [];
+      
+      if (scheduleArray.length > 0) {
+        setNewShiftSchedule(scheduleArray);
       } else {
         // Use defaults when no schedule exists
         setNewShiftSchedule(daysOfWeek.map(day => ({
@@ -1630,7 +1639,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 {/* Schedule Grid */}
                 <div className="space-y-4">
-                  {newShiftSchedule.map((shift, index) => (
+                  {(Array.isArray(newShiftSchedule) ? newShiftSchedule : []).map((shift, index) => (
                     <div key={shift.dayOfWeek} className="flex items-center space-x-4 p-4 border rounded-lg">
                       <div className="w-24">
                         <Label className="font-medium">{shift.dayOfWeek}</Label>
