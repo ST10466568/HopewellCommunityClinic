@@ -10,8 +10,30 @@ const api = axios.create({
   },
 });
 
+// Create a separate API instance for admin operations that doesn't auto-logout
+const adminApi = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Admin API request interceptor (same as regular API)
+adminApi.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -36,6 +58,15 @@ api.interceptors.response.use(
         window.location.href = '/auth';
       }
     }
+    return Promise.reject(error);
+  }
+);
+
+// Admin API response interceptor (NO auto-logout)
+adminApi.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Don't auto-logout for admin operations - let components handle errors
     return Promise.reject(error);
   }
 );
