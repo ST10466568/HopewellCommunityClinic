@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { appointmentsAPI, doctorAPI, staffAPI } from '../services/api';
+import { appointmentsAPI, doctorAPI, staffAPI, adminAPI } from '../services/api';
 import BookingWizard from './BookingWizard';
 import { 
   Calendar, 
@@ -199,32 +199,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadDoctorShiftSchedule = async (doctorId: string) => {
     try {
       console.log('🔍 Loading shift schedule for doctor:', doctorId);
-      const schedule = await doctorAPI.getShiftSchedule(doctorId);
-      setDoctorShiftSchedule(schedule);
-      setNewShiftSchedule(schedule);
-      console.log('✅ Loaded shift schedule:', schedule);
+      
+      // Try admin-specific endpoint first
+      try {
+        const schedule = await adminAPI.getDoctorShiftSchedule(doctorId);
+        setDoctorShiftSchedule(schedule);
+        setNewShiftSchedule(schedule);
+        console.log('✅ Loaded shift schedule via admin endpoint:', schedule);
+        return;
+      } catch (adminError) {
+        console.log('⚠️ Admin endpoint failed, trying doctor endpoint...');
+        
+        // Try doctor endpoint as fallback
+        try {
+          const schedule = await doctorAPI.getShiftSchedule(doctorId);
+          setDoctorShiftSchedule(schedule);
+          setNewShiftSchedule(schedule);
+          console.log('✅ Loaded shift schedule via doctor endpoint:', schedule);
+          return;
+        } catch (doctorError) {
+          console.log('⚠️ Doctor endpoint failed, trying public endpoint...');
+          
+          // Try public endpoint as final fallback
+          try {
+            const publicSchedule = await doctorAPI.getShiftSchedulePublic(doctorId);
+            setDoctorShiftSchedule(publicSchedule);
+            setNewShiftSchedule(publicSchedule);
+            console.log('✅ Loaded schedule from public endpoint:', publicSchedule);
+            return;
+          } catch (publicError) {
+            console.error('❌ All endpoints failed:', publicError);
+            throw publicError;
+          }
+        }
+      }
     } catch (error) {
       console.error('❌ Error loading shift schedule:', error);
       
-      // Try public endpoint as fallback
-      try {
-        console.log('🔄 Trying public endpoint as fallback...');
-        const publicSchedule = await doctorAPI.getShiftSchedulePublic(doctorId);
-        setDoctorShiftSchedule(publicSchedule);
-        setNewShiftSchedule(publicSchedule);
-        console.log('✅ Loaded schedule from public endpoint:', publicSchedule);
-      } catch (publicError) {
-        console.error('❌ Public endpoint also failed:', publicError);
-        // Initialize with default schedule if both fail
-        const defaultSchedule = daysOfWeek.map(day => ({
-          dayOfWeek: day,
-          startTime: '09:00',
-          endTime: '17:00',
-          isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
-        }));
-        setDoctorShiftSchedule(defaultSchedule);
-        setNewShiftSchedule(defaultSchedule);
-      }
+      // Initialize with default schedule if all fail
+      const defaultSchedule = daysOfWeek.map(day => ({
+        dayOfWeek: day,
+        startTime: '09:00',
+        endTime: '17:00',
+        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+      }));
+      setDoctorShiftSchedule(defaultSchedule);
+      setNewShiftSchedule(defaultSchedule);
     }
   };
 
@@ -237,32 +257,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.log('🔄 Updating shift schedule for doctor:', selectedDoctor.id);
       console.log('📅 New schedule:', newShiftSchedule);
       
-      // Try authenticated endpoint first
+      // Try admin-specific endpoint first
       try {
-        await doctorAPI.updateShiftSchedule(selectedDoctor.id, newShiftSchedule);
+        await adminAPI.updateDoctorShiftSchedule(selectedDoctor.id, newShiftSchedule);
         setDoctorShiftSchedule(newShiftSchedule);
-        console.log('✅ Shift schedule updated successfully via authenticated endpoint');
+        console.log('✅ Shift schedule updated successfully via admin endpoint');
         
         // Close modal after successful update
         setShowDoctorScheduleModal(false);
         setSelectedDoctor(null);
         return;
-      } catch (authError) {
-        console.log('⚠️ Authenticated endpoint failed, trying public endpoint...');
+      } catch (adminError) {
+        console.log('⚠️ Admin endpoint failed, trying doctor endpoint...');
         
-        // Try public endpoint as fallback
+        // Try doctor endpoint as fallback
         try {
-          await doctorAPI.updateShiftSchedulePublic(selectedDoctor.id, newShiftSchedule);
+          await doctorAPI.updateShiftSchedule(selectedDoctor.id, newShiftSchedule);
           setDoctorShiftSchedule(newShiftSchedule);
-          console.log('✅ Shift schedule updated successfully via public endpoint');
+          console.log('✅ Shift schedule updated successfully via doctor endpoint');
           
           // Close modal after successful update
           setShowDoctorScheduleModal(false);
           setSelectedDoctor(null);
           return;
-        } catch (publicError) {
-          console.error('❌ Both endpoints failed:', publicError);
-          throw publicError;
+        } catch (doctorError) {
+          console.log('⚠️ Doctor endpoint failed, trying public endpoint...');
+          
+          // Try public endpoint as final fallback
+          try {
+            await doctorAPI.updateShiftSchedulePublic(selectedDoctor.id, newShiftSchedule);
+            setDoctorShiftSchedule(newShiftSchedule);
+            console.log('✅ Shift schedule updated successfully via public endpoint');
+            
+            // Close modal after successful update
+            setShowDoctorScheduleModal(false);
+            setSelectedDoctor(null);
+            return;
+          } catch (publicError) {
+            console.error('❌ All endpoints failed:', publicError);
+            throw publicError;
+          }
         }
       }
     } catch (error) {

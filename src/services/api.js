@@ -852,6 +852,25 @@ export const adminAPI = {
       throw error.response?.data || error.message;
     }
   },
+
+  // Admin-specific doctor schedule management
+  getDoctorShiftSchedule: async (doctorId) => {
+    try {
+      const response = await api.get(`/Admin/doctors/${doctorId}/shifts`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  updateDoctorShiftSchedule: async (doctorId, shiftData) => {
+    try {
+      const response = await api.put(`/Admin/doctors/${doctorId}/shifts`, shiftData);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
 };
 
 export default api;
