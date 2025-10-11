@@ -46,6 +46,11 @@ interface AdminUser {
   role: string;
   isActive: boolean;
   createdAt: string;
+  phone?: string;
+  dateOfBirth?: string;
+  address?: string;
+  emergencyContact?: string;
+  emergencyPhone?: string;
 }
 
 interface Appointment {
@@ -672,12 +677,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <Users className="h-5 w-5 text-primary" />
-                    <span>User Management</span>
+                    <span>All System Users</span>
                   </div>
                   <div className="flex space-x-2">
                     <Button onClick={() => setShowCreateStaffModal(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add User
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Add Staff Member
                     </Button>
                     <Button onClick={() => setShowCreatePatientModal(true)} variant="outline">
                       <UserPlus className="h-4 w-4 mr-2" />
@@ -686,7 +691,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
                 <CardDescription>
-                  Manage system users and their roles
+                  Manage all users in the system - both staff members and patients
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -696,49 +701,185 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <p className="text-muted-foreground">No users found</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {users.map((user) => (
-                      <div key={user.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-foreground">
-                              {user.firstName} {user.lastName}
-                            </h4>
-                            <p className="text-sm text-muted-foreground">{user.email}</p>
-                            <p className="text-sm text-muted-foreground">
-                              Role: {user.role} • Created: {new Date(user.createdAt).toLocaleDateString()}
-                            </p>
+                  <div className="space-y-6">
+                    {/* Staff Members Section */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <Shield className="h-5 w-5 mr-2 text-blue-600" />
+                        Staff Members ({users.filter(u => ['admin', 'doctor', 'nurse'].includes(u.role)).length})
+                      </h3>
+                      <div className="space-y-3">
+                        {users.filter(u => ['admin', 'doctor', 'nurse'].includes(u.role)).map((user) => (
+                          <div key={user.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <h4 className="font-medium text-foreground">
+                                  {user.firstName} {user.lastName}
+                                </h4>
+                                <p className="text-sm text-muted-foreground">{user.email}</p>
+                                <div className="flex items-center space-x-4 mt-2">
+                                  <Badge variant={user.role === 'admin' ? 'destructive' : user.role === 'doctor' ? 'default' : 'secondary'}>
+                                    {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                                  </Badge>
+                                  <span className="text-sm text-muted-foreground">
+                                    Created: {new Date(user.createdAt).toLocaleDateString()}
+                                  </span>
+                                  <Badge variant={user.isActive ? 'default' : 'secondary'}>
+                                    {user.isActive ? 'Active' : 'Inactive'}
+                                  </Badge>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => onToggleUserStatus(user.id, !user.isActive)}
+                                  disabled={isProcessing}
+                                >
+                                  {user.isActive ? (
+                                    <>
+                                      <XCircle className="h-4 w-4 mr-1" />
+                                      Deactivate
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle className="h-4 w-4 mr-1" />
+                                      Activate
+                                    </>
+                                  )}
+                                </Button>
+                                {user.role !== 'admin' && (
+                                  <select
+                                    value={user.role}
+                                    onChange={(e) => onUpdateUserRole(user.id, e.target.value)}
+                                    className="px-2 py-1 text-sm border rounded"
+                                    disabled={isProcessing}
+                                  >
+                                    <option value="doctor">Doctor</option>
+                                    <option value="nurse">Nurse</option>
+                                  </select>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge variant={user.isActive ? "default" : "secondary"}>
-                              {user.isActive ? "Active" : "Inactive"}
-                            </Badge>
-                            <div className="flex space-x-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => onToggleUserStatus(user.id, !user.isActive)}
-                                disabled={isProcessing}
-                              >
-                                {user.isActive ? "Deactivate" : "Activate"}
-                              </Button>
-                              {user.role !== 'admin' && (
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Patients Section */}
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4 flex items-center">
+                        <User className="h-5 w-5 mr-2 text-green-600" />
+                        Patients ({users.filter(u => u.role === 'patient').length})
+                      </h3>
+                      <div className="space-y-3">
+                        {users.filter(u => u.role === 'patient').map((user) => (
+                          <div key={user.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <h4 className="font-medium text-foreground">
+                                  {user.firstName} {user.lastName}
+                                </h4>
+                                <p className="text-sm text-muted-foreground">{user.email}</p>
+                                <div className="flex items-center space-x-4 mt-2">
+                                  <Badge variant="outline" className="text-green-600 border-green-600">
+                                    Patient
+                                  </Badge>
+                                  <span className="text-sm text-muted-foreground">
+                                    Created: {new Date(user.createdAt).toLocaleDateString()}
+                                  </span>
+                                  <Badge variant={user.isActive ? 'default' : 'secondary'}>
+                                    {user.isActive ? 'Active' : 'Inactive'}
+                                  </Badge>
+                                  {user.phone && (
+                                    <span className="text-sm text-muted-foreground">
+                                      Phone: {user.phone}
+                                    </span>
+                                  )}
+                                </div>
+                                {user.dateOfBirth && (
+                                  <p className="text-sm text-muted-foreground mt-1">
+                                    DOB: {new Date(user.dateOfBirth).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {user.address && (
+                                  <p className="text-sm text-muted-foreground mt-1">
+                                    Address: {user.address}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => onToggleUserStatus(user.id, !user.isActive)}
+                                  disabled={isProcessing}
+                                >
+                                  {user.isActive ? (
+                                    <>
+                                      <XCircle className="h-4 w-4 mr-1" />
+                                      Deactivate
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle className="h-4 w-4 mr-1" />
+                                      Activate
+                                    </>
+                                  )}
+                                </Button>
                                 <select
-                                  value={user.role}
+                                  value="patient"
                                   onChange={(e) => onUpdateUserRole(user.id, e.target.value)}
                                   className="px-2 py-1 text-sm border rounded"
                                   disabled={isProcessing}
                                 >
-                                  <option value="patient">Patient</option>
-                                  <option value="doctor">Doctor</option>
-                                  <option value="admin">Admin</option>
+                                  <option value="patient">Keep as Patient</option>
+                                  <option value="doctor">Make Doctor</option>
+                                  <option value="nurse">Make Nurse</option>
                                 </select>
-                              )}
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-3 gap-4 mt-6">
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center space-x-2">
+                            <Shield className="h-4 w-4 text-blue-600" />
+                            <div>
+                              <p className="text-sm font-medium">Total Staff</p>
+                              <p className="text-2xl font-bold">{users.filter(u => ['admin', 'doctor', 'nurse'].includes(u.role)).length}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center space-x-2">
+                            <User className="h-4 w-4 text-green-600" />
+                            <div>
+                              <p className="text-sm font-medium">Total Patients</p>
+                              <p className="text-2xl font-bold">{users.filter(u => u.role === 'patient').length}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center space-x-2">
+                            <Users className="h-4 w-4 text-purple-600" />
+                            <div>
+                              <p className="text-sm font-medium">Total Users</p>
+                              <p className="text-2xl font-bold">{users.length}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
                   </div>
                 )}
               </CardContent>
