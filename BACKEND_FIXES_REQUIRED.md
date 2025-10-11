@@ -8,13 +8,19 @@
 
 ## Current Issues Identified
 
-### 1. Authentication Issues
+### 1. CORS Policy Issues
+- **Problem:** `Access to XMLHttpRequest blocked by CORS policy: No 'Access-Control-Allow-Origin' header`
+- **Expected:** Backend should allow requests from `http://localhost:3000` (development) and production domains
+- **Current Behavior:** All API requests are blocked by CORS policy
+- **Impact:** Frontend cannot communicate with backend API
+
+### 2. Authentication Issues
 - **Problem:** All authenticated endpoints return 500 Internal Server Error
 - **Expected:** Should return 401 Unauthorized if authentication fails
 - **Current Behavior:** Server error instead of proper authentication handling
 - **Root Cause:** Endpoints exist but have authentication/authorization implementation issues
 
-### 2. Endpoint Status
+### 3. Endpoint Status
 | Endpoint | Status | Error Code | Analysis |
 |----------|--------|------------|----------|
 | `GET /api/Admin/doctors/{doctorId}/shifts` | ❌ FAILED | 500 | **Endpoint exists but has server issues** |
@@ -27,7 +33,57 @@
 
 ## Required Backend Fixes
 
-### 1. Fix Authentication/Authorization Issues
+### 1. Fix CORS Configuration (CRITICAL - Blocks all frontend requests)
+**Priority:** CRITICAL - Frontend cannot communicate with backend
+
+**🔍 Analysis:** CORS policy is blocking all requests from `http://localhost:3000`
+
+**Required Fix:**
+```csharp
+// In Startup.cs or Program.cs - Add CORS configuration
+services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", builder =>
+    {
+        builder
+            .WithOrigins(
+                "http://localhost:3000",        // Development
+                "https://localhost:3000",        // Development HTTPS
+                "https://hopewell-clinic-frontend.azurewebsites.net", // Production
+                "https://hopewellclinic.azurewebsites.net"            // Alternative production
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials(); // Required for JWT authentication
+    });
+});
+
+// In Configure method (Startup.cs) or after app.Build() (Program.cs)
+app.UseCors("AllowFrontend");
+```
+
+**Alternative CORS Configuration (if above doesn't work):**
+```csharp
+// More permissive CORS for development
+services.AddCors(options =>
+{
+    options.AddPolicy("Development", builder =>
+    {
+        builder
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
+    });
+});
+
+// Use in development only
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("Development");
+}
+```
+
+### 2. Fix Authentication/Authorization Issues
 **Priority:** CRITICAL - All authenticated endpoints are failing with 500 errors
 
 **🔍 Analysis:** The endpoints exist (not 404) but return 500 errors, indicating:
@@ -366,14 +422,21 @@ Response: 200 OK
 
 After implementing fixes, verify:
 
-### Admin-Specific Endpoints (Priority 1)
+### CORS Configuration (Priority 1 - CRITICAL)
+- [ ] Frontend can make requests to backend without CORS errors
+- [ ] Development environment (`http://localhost:3000`) is allowed
+- [ ] Production environment is configured
+- [ ] JWT authentication headers are accepted
+- [ ] All HTTP methods (GET, POST, PUT, DELETE) are allowed
+
+### Admin-Specific Endpoints (Priority 2)
 - [ ] `GET /api/Admin/doctors/{doctorId}/shifts` returns 200 with proper shift array
 - [ ] `PUT /api/Admin/doctors/{doctorId}/shifts` accepts `{ "shifts": [...] }` format
 - [ ] `PUT /api/Admin/doctors/{doctorId}/shifts` returns `{ "message": "Doctor shifts updated successfully" }`
 - [ ] Admin role has access to admin-specific endpoints
 - [ ] Non-admin users get 403 Forbidden for admin endpoints
 
-### Doctor Endpoints (Priority 2)
+### Doctor Endpoints (Priority 3)
 - [ ] `GET /api/Doctor/{doctorId}/shifts` returns 200 with proper shift array
 - [ ] `PUT /api/Doctor/{doctorId}/shifts` accepts `{ "shifts": [...] }` format
 - [ ] `PUT /api/Doctor/{doctorId}/shifts` returns `{ "message": "Doctor shifts updated successfully" }`
