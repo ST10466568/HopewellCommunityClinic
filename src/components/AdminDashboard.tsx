@@ -248,7 +248,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.error('❌ Error updating shift schedule:', error);
       
       // Check if it's an authentication error
-      if (error.response?.status === 401) {
+      if (error && typeof error === 'object' && 'response' in error && 
+          error.response && typeof error.response === 'object' && 
+          'status' in error.response && error.response.status === 401) {
         console.log('⚠️ Authentication failed - admin may not have proper permissions');
         console.log('💡 Schedule changes will be saved locally but not persisted to database');
         
