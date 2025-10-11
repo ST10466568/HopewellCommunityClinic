@@ -744,7 +744,7 @@ export const doctorAPI = {
 
   getShiftSchedule: async (doctorId) => {
     try {
-      const response = await api.get(`/Doctor/${doctorId}/shifts`);
+      const response = await adminApi.get(`/Doctor/${doctorId}/shifts`);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -753,7 +753,7 @@ export const doctorAPI = {
 
   updateShiftSchedule: async (doctorId, shiftData) => {
     try {
-      const response = await api.put(`/Doctor/${doctorId}/shifts`, shiftData);
+      const response = await adminApi.put(`/Doctor/${doctorId}/shifts`, shiftData);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -763,7 +763,8 @@ export const doctorAPI = {
   // Admin schedule management functions (using public endpoints)
   getShiftSchedulePublic: async (doctorId) => {
     try {
-      const response = await api.get(`/DoctorSchedule/${doctorId}/shifts`);
+      // Use a completely public API call without authentication
+      const response = await axios.get(`${API_BASE_URL}/DoctorSchedule/${doctorId}/shifts`);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -772,7 +773,8 @@ export const doctorAPI = {
 
   updateShiftSchedulePublic: async (doctorId, shiftData) => {
     try {
-      const response = await api.put(`/DoctorSchedule/${doctorId}/shifts`, shiftData);
+      // Use a completely public API call without authentication
+      const response = await axios.put(`${API_BASE_URL}/DoctorSchedule/${doctorId}/shifts`, shiftData);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
