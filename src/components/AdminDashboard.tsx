@@ -237,13 +237,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.log('🔄 Updating shift schedule for doctor:', selectedDoctor.id);
       console.log('📅 New schedule:', newShiftSchedule);
       
-      await doctorAPI.updateShiftSchedule(selectedDoctor.id, newShiftSchedule);
-      setDoctorShiftSchedule(newShiftSchedule);
-      console.log('✅ Shift schedule updated successfully');
-      
-      // Close modal after successful update
-      setShowDoctorScheduleModal(false);
-      setSelectedDoctor(null);
+      // Try authenticated endpoint first
+      try {
+        await doctorAPI.updateShiftSchedule(selectedDoctor.id, newShiftSchedule);
+        setDoctorShiftSchedule(newShiftSchedule);
+        console.log('✅ Shift schedule updated successfully via authenticated endpoint');
+        
+        // Close modal after successful update
+        setShowDoctorScheduleModal(false);
+        setSelectedDoctor(null);
+        return;
+      } catch (authError) {
+        console.log('⚠️ Authenticated endpoint failed, trying public endpoint...');
+        
+        // Try public endpoint as fallback
+        try {
+          await doctorAPI.updateShiftSchedulePublic(selectedDoctor.id, newShiftSchedule);
+          setDoctorShiftSchedule(newShiftSchedule);
+          console.log('✅ Shift schedule updated successfully via public endpoint');
+          
+          // Close modal after successful update
+          setShowDoctorScheduleModal(false);
+          setSelectedDoctor(null);
+          return;
+        } catch (publicError) {
+          console.error('❌ Both endpoints failed:', publicError);
+          throw publicError;
+        }
+      }
     } catch (error) {
       console.error('❌ Error updating shift schedule:', error);
       
