@@ -6,6 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { appointmentsAPI, doctorAPI, staffAPI, adminAPI } from '../services/api';
 import BookingWizard from './BookingWizard';
+import AppointmentManagement from './AppointmentManagement';
 import { 
   Calendar, 
   Clock, 
@@ -112,6 +113,7 @@ interface AdminDashboardProps {
   onCreateService: (serviceData: any) => Promise<void>;
   onUpdateService: (serviceId: string, serviceData: any) => Promise<void>;
   onDeleteService: (serviceId: string) => Promise<void>;
+  onRefreshAppointments: () => void;
   onLogout: () => void;
 }
 
@@ -129,6 +131,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onCreateService,
   onUpdateService,
   onDeleteService,
+  onRefreshAppointments,
   onLogout
 }) => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -746,65 +749,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Appointments Tab */}
         {activeTab === 'appointments' && (
           <div className="space-y-6">
-            <Card className="medical-card">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="h-5 w-5 text-primary" />
-                    <span>All Appointments</span>
-                  </div>
-                  <Button onClick={handleWalkInBooking}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Book Walk-in Appointment
-                  </Button>
-                </div>
-                <CardDescription>
-                  View and manage all system appointments
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {appointments.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">No appointments found</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {appointments.map((appointment) => (
-                      <div key={appointment.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-foreground">
-                              {appointment.patient.firstName} {appointment.patient.lastName}
-                            </h4>
-                            <p className="text-sm text-muted-foreground">
-                              {formatDate(appointment.appointmentDate)} at {formatTime(appointment.startTime)}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              Service: {appointment.service.name} ({appointment.service.durationMinutes} min)
-                            </p>
-                            {appointment.staff && (
-                              <p className="text-sm text-muted-foreground">
-                                Doctor: Dr. {appointment.staff.firstName} {appointment.staff.lastName}
-                              </p>
-                            )}
-                            {appointment.notes && (
-                              <p className="text-sm text-muted-foreground mt-2">
-                                <FileText className="h-3 w-3 inline mr-1" />
-                                {appointment.notes}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end space-y-2">
-                            {getStatusBadge(appointment.status)}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                <span className="text-lg font-semibold">Appointment Management</span>
+              </div>
+              <Button onClick={handleWalkInBooking}>
+                <Plus className="h-4 w-4 mr-2" />
+                Book Walk-in Appointment
+              </Button>
+            </div>
+            
+            <AppointmentManagement 
+              appointments={appointments} 
+              onRefresh={onRefreshAppointments}
+            />
           </div>
         )}
 

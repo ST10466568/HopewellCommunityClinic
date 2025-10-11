@@ -833,6 +833,7 @@ const AdminDashboardWrapper: React.FC<{
     onCreateService: handleCreateService,
     onUpdateService: handleUpdateService,
     onDeleteService: handleDeleteService,
+    onRefreshAppointments: loadDashboardData,
     onLogout: () => {
       localStorage.removeItem('token');
       window.location.href = '/auth';
