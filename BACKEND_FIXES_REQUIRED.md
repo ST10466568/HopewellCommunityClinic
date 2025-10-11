@@ -16,13 +16,75 @@
 ### 2. Endpoint Status
 | Endpoint | Status | Error Code | Expected Behavior |
 |----------|--------|------------|-------------------|
+| `GET /api/Admin/doctors/{doctorId}/shifts` | ❌ FAILED | 500 | Should return array of shift objects |
+| `PUT /api/Admin/doctors/{doctorId}/shifts` | ❌ FAILED | 500 | Should return success message |
 | `GET /api/Doctor/{doctorId}/shifts` | ❌ FAILED | 500 | Should return array of shift objects |
 | `PUT /api/Doctor/{doctorId}/shifts` | ❌ FAILED | 500 | Should return success message |
 | `GET /api/DoctorSchedule/{doctorId}/shifts` | ✅ WORKING | 200 | Public endpoint works correctly |
 
 ## Required Backend Fixes
 
-### 1. Fix Authentication Handling
+### 1. Implement Admin-Specific Endpoints
+**Priority:** HIGH - These are the preferred endpoints for admin operations
+
+**Required Implementation:**
+```csharp
+// In AdminController.cs - Add these new endpoints
+[HttpGet("doctors/{doctorId}/shifts")]
+[Authorize(Roles = "Admin")]
+public async Task<IActionResult> GetDoctorShifts(string doctorId)
+{
+    try 
+    {
+        // Validate doctorId format
+        if (!Guid.TryParse(doctorId, out var doctorGuid))
+        {
+            return BadRequest(new { error = "Invalid doctor ID format" });
+        }
+        
+        // Get doctor's shift schedule
+        var shifts = await _shiftService.GetDoctorShifts(doctorGuid);
+        return Ok(shifts);
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error getting doctor shifts for {DoctorId}", doctorId);
+        return StatusCode(500, new { error = "Internal server error" });
+    }
+}
+
+[HttpPut("doctors/{doctorId}/shifts")]
+[Authorize(Roles = "Admin")]
+public async Task<IActionResult> UpdateDoctorShifts(string doctorId, UpdateDoctorShiftsRequest request)
+{
+    try
+    {
+        // Validate doctorId
+        if (!Guid.TryParse(doctorId, out var doctorGuid))
+        {
+            return BadRequest(new { error = "Invalid doctor ID format" });
+        }
+        
+        // Validate request
+        if (request?.Shifts == null || !request.Shifts.Any())
+        {
+            return BadRequest(new { error = "Shifts data is required" });
+        }
+        
+        // Update doctor's shift schedule
+        await _shiftService.UpdateDoctorShifts(doctorGuid, request.Shifts);
+        
+        return Ok(new { message = "Doctor shifts updated successfully" });
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error updating doctor shifts for {DoctorId}", doctorId);
+        return StatusCode(500, new { error = "Internal server error" });
+    }
+}
+```
+
+### 2. Fix Authentication Handling
 **Current Issue:** 500 Internal Server Error instead of proper authentication responses
 
 **Required Fix:**
@@ -160,7 +222,39 @@ CREATE TABLE ShiftSchedules (
 
 ## Expected API Behavior
 
-### GET Request
+### Admin-Specific Endpoints (Preferred)
+
+#### GET Request
+```
+GET /api/Admin/doctors/{doctorId}/shifts
+Headers: Authorization: Bearer <admin_jwt_token>
+Response: 200 OK
+[
+  {
+    "id": "guid",
+    "dayOfWeek": "Monday", 
+    "startTime": "08:00",
+    "endTime": "16:00",
+    "isActive": true,
+    "doctorId": "doctor-guid"
+  }
+]
+```
+
+#### PUT Request
+```
+PUT /api/Admin/doctors/{doctorId}/shifts
+Headers: Authorization: Bearer <admin_jwt_token>
+Body: { "shifts": [shiftData] }
+Response: 200 OK
+{
+  "message": "Doctor shifts updated successfully"
+}
+```
+
+### Doctor Endpoints (Fallback)
+
+#### GET Request
 ```
 GET /api/Doctor/{doctorId}/shifts
 Headers: Authorization: Bearer <admin_jwt_token>
@@ -177,7 +271,7 @@ Response: 200 OK
 ]
 ```
 
-### PUT Request
+#### PUT Request
 ```
 PUT /api/Doctor/{doctorId}/shifts
 Headers: Authorization: Bearer <admin_jwt_token>
@@ -205,14 +299,25 @@ Response: 200 OK
 
 After implementing fixes, verify:
 
-- [ ] GET endpoint returns 200 with proper shift array
-- [ ] PUT endpoint accepts `{ "shifts": [...] }` format
-- [ ] PUT endpoint returns `{ "message": "Doctor shifts updated successfully" }`
+### Admin-Specific Endpoints (Priority 1)
+- [ ] `GET /api/Admin/doctors/{doctorId}/shifts` returns 200 with proper shift array
+- [ ] `PUT /api/Admin/doctors/{doctorId}/shifts` accepts `{ "shifts": [...] }` format
+- [ ] `PUT /api/Admin/doctors/{doctorId}/shifts` returns `{ "message": "Doctor shifts updated successfully" }`
+- [ ] Admin role has access to admin-specific endpoints
+- [ ] Non-admin users get 403 Forbidden for admin endpoints
+
+### Doctor Endpoints (Priority 2)
+- [ ] `GET /api/Doctor/{doctorId}/shifts` returns 200 with proper shift array
+- [ ] `PUT /api/Doctor/{doctorId}/shifts` accepts `{ "shifts": [...] }` format
+- [ ] `PUT /api/Doctor/{doctorId}/shifts` returns `{ "message": "Doctor shifts updated successfully" }`
+- [ ] Both admin and doctor roles have access to doctor endpoints
+
+### General Requirements
 - [ ] 401 error for invalid/missing tokens
 - [ ] 403 error for insufficient permissions
 - [ ] 400 error for invalid request format
 - [ ] Database updates persist correctly
-- [ ] Admin role has access to all doctor schedules
+- [ ] Frontend fallback mechanism works correctly
 
 ## Frontend Status
 
