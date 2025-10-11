@@ -8,6 +8,33 @@ This guide will help you deploy the Hopewell Clinic React frontend to Azure App 
 2. **Node.js** (v18 or higher) - Already installed in your project
 3. **Azure Subscription** - You need an active Azure subscription
 4. **PowerShell** - For running deployment scripts
+5. **Azure Permissions** - Ensure you have Contributor or Owner role on the subscription/resource group
+
+## Pre-Deployment Checklist
+
+Before starting deployment, verify the following:
+
+1. **Check Azure CLI Login:**
+   ```bash
+   az account show
+   ```
+   - Should show your account details and subscription
+   - If not logged in, run: `az login`
+
+2. **Verify Permissions:**
+   ```bash
+   az role assignment list --assignee "your-email@domain.com" --output table
+   ```
+   - Should show Contributor or Owner role
+   - If no roles shown, contact your Azure administrator
+
+3. **Check Existing Resources:**
+   ```bash
+   az group list --output table
+   az webapp list --output table
+   ```
+   - Look for existing resource groups you can use
+   - Check if App Services already exist
 
 ## API Configuration
 
@@ -42,7 +69,39 @@ https://hopewellapi-azcvcferesfpgjgm.southafricanorth-01.azurewebsites.net/api
    .\deploy-azure.ps1 -ResourceGroupName "hopewell-clinic-rg" -AppServiceName "hopewell-clinic-frontend"
    ```
 
-### Option 3: Manual Deployment
+### Option 3: Deploy to Existing App Service (Recommended for Educational/Enterprise Subscriptions)
+
+If you don't have permissions to create new resources, use existing ones:
+
+1. **Find Existing Resources:**
+   ```bash
+   az group list --output table
+   az webapp list --output table
+   ```
+
+2. **Build Application:**
+   ```bash
+   npm run build
+   ```
+
+3. **Copy web.config:**
+   ```bash
+   Copy-Item "web.config" "build/" -Force
+   ```
+
+4. **Create Deployment Package:**
+   ```bash
+   Compress-Archive -Path "build\*" -DestinationPath "build.zip" -Force
+   ```
+
+5. **Deploy to Existing App Service:**
+   ```bash
+   az webapp deployment source config-zip --resource-group "YOUR-RESOURCE-GROUP" --name "YOUR-APP-SERVICE-NAME" --src "build.zip"
+   ```
+
+### Option 4: Manual Deployment (Full Resource Creation)
+
+**⚠️ Requires Contributor/Owner permissions**
 
 1. **Create Resource Group:**
    ```bash
@@ -92,23 +151,65 @@ After successful deployment:
 
 ### Common Issues:
 
-1. **Build fails:**
+1. **Authorization Failed Errors:**
+   ```
+   (AuthorizationFailed) The client 'user@domain.com' does not have authorization to perform action 'Microsoft.Resources/subscriptions/resourcegroups/write'
+   ```
+   **Solution:**
+   - Check your Azure permissions: `az role assignment list --assignee "your-email@domain.com"`
+   - Use existing resource groups instead of creating new ones
+   - Contact your Azure administrator for proper permissions
+   - Use Option 3 (Deploy to Existing App Service) instead
+
+2. **Build fails:**
    - Ensure all dependencies are installed: `npm install`
    - Check for TypeScript errors: `npm run build`
+   - Clear node_modules cache: `rm -rf node_modules/.cache`
 
-2. **Deployment fails:**
+3. **Deployment fails:**
    - Verify Azure CLI is logged in: `az account show`
    - Check resource group and app service names
    - Ensure you have proper permissions
+   - Use existing resources if you can't create new ones
 
-3. **API connection issues:**
+4. **API connection issues:**
    - Verify the API URL is correct
    - Check CORS settings on the API
    - Test API endpoints directly
 
-4. **Routing issues:**
+5. **Routing issues:**
    - Ensure web.config is in the build folder
    - Check that homepage is set to "." in package.json
+
+6. **Resource Group Not Found:**
+   ```
+   Resource group 'hopewell-clinic-rg' could not be found
+   ```
+   **Solution:**
+   - List available resource groups: `az group list --output table`
+   - Use an existing resource group name
+   - Or create one if you have permissions
+
+7. **App Service Name Conflicts:**
+   ```
+   The name 'hopewell-clinic-frontend' is not available
+   ```
+   **Solution:**
+   - Use a unique name with your identifier: `hopewell-clinic-frontend-yourname`
+   - Check existing app services: `az webapp list --output table`
+
+### Educational/Enterprise Subscription Issues:
+
+**Common in educational environments:**
+- Limited permissions to create resources
+- Pre-existing resource groups
+- Restricted subscription access
+
+**Workarounds:**
+1. Use existing resource groups and App Services
+2. Deploy to pre-allocated resources
+3. Contact IT administrator for permissions
+4. Use Azure Portal for deployment if CLI fails
 
 ### Logs and Monitoring:
 
@@ -149,8 +250,63 @@ For issues with:
 - **Application Code:** Review the codebase and logs
 - **Deployment:** Use the provided scripts and guides
 
+## Quick Reference Commands
+
+### Check Your Environment:
+```bash
+# Check Azure CLI login
+az account show
+
+# List available resource groups
+az group list --output table
+
+# List existing App Services
+az webapp list --output table
+
+# Check your permissions
+az role assignment list --assignee "your-email@domain.com" --output table
+```
+
+### Build and Deploy (Using Existing Resources):
+```bash
+# Build the application
+npm run build
+
+# Copy web.config to build folder
+Copy-Item "web.config" "build/" -Force
+
+# Create deployment package
+Compress-Archive -Path "build\*" -DestinationPath "build.zip" -Force
+
+# Deploy to existing App Service
+az webapp deployment source config-zip --resource-group "YOUR-RESOURCE-GROUP" --name "YOUR-APP-SERVICE-NAME" --src "build.zip"
+
+# Get your app URL
+az webapp show --resource-group "YOUR-RESOURCE-GROUP" --name "YOUR-APP-SERVICE-NAME" --query "defaultHostName" --output tsv
+```
+
+### Success Indicators:
+- ✅ Build completes without errors
+- ✅ Deployment returns status "Succeeded"
+- ✅ App Service state shows "Running"
+- ✅ App is accessible at `https://your-app-name.azurewebsites.net`
+
 ---
 
 **Note:** This deployment connects to the hosted API at `https://hopewellapi-azcvcferesfpgjgm.southafricanorth-01.azurewebsites.net`. Ensure the API is running and accessible before deploying the frontend.
+
+**For Educational/Enterprise Users:** If you encounter permission issues, use Option 3 (Deploy to Existing App Service) which works with limited permissions.
+
+
+
+
+
+
+
+
+
+
+
+
 
 
