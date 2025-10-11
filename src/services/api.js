@@ -753,7 +753,7 @@ export const doctorAPI = {
 
   updateShiftSchedule: async (doctorId, shiftData) => {
     try {
-      const response = await api.put(`/Doctor/${doctorId}/shifts`, shiftData);
+      const response = await api.put(`/Doctor/${doctorId}/shifts`, { shifts: shiftData });
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
