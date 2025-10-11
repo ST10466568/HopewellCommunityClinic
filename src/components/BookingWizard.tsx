@@ -119,7 +119,7 @@ const BookingWizard: React.FC<BookingWizardProps> = ({
 
       // Validate patientId
       if (!patientId) {
-        setError('Patient ID is required. Please try again.');
+        setError('Patient ID is required. Please contact support - your account may not be properly linked to a patient record.');
         return;
       }
 

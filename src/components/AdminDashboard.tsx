@@ -4,6 +4,8 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { appointmentsAPI, doctorAPI, staffAPI } from '../services/api';
+import BookingWizard from './BookingWizard';
 import { 
   Calendar, 
   Clock, 
@@ -22,7 +24,9 @@ import {
   BarChart3,
   UserPlus,
   Shield,
-  Activity
+  Activity,
+  UserCog,
+  CalendarDays
 } from 'lucide-react';
 
 interface User {
@@ -77,6 +81,23 @@ interface Service {
   price?: number;
 }
 
+interface Doctor {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  createdAt?: string;
+}
+
+interface ShiftSchedule {
+  dayOfWeek: string;
+  startTime: string;
+  endTime: string;
+  isActive: boolean;
+}
+
 interface AdminDashboardProps {
   user: User;
   users: AdminUser[];
@@ -112,8 +133,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [showCreateStaffModal, setShowCreateStaffModal] = useState(false);
+  const [showCreatePatientModal, setShowCreatePatientModal] = useState(false);
+  const [showWalkInModal, setShowWalkInModal] = useState(false);
+  const [showBookingWizard, setShowBookingWizard] = useState(false);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingService, setEditingService] = useState<any>(null);
+  
+  // Doctor schedule management states
+  const [showDoctorScheduleModal, setShowDoctorScheduleModal] = useState(false);
+  const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
+  const [allDoctors, setAllDoctors] = useState<Doctor[]>([]);
+  const [doctorShiftSchedule, setDoctorShiftSchedule] = useState<ShiftSchedule[]>([]);
+  const [newShiftSchedule, setNewShiftSchedule] = useState<ShiftSchedule[]>([]);
+  const [isLoadingDoctors, setIsLoadingDoctors] = useState(false);
+  const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
   const [newStaffData, setNewStaffData] = useState({
     email: '',
     password: '',
@@ -122,12 +156,98 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     role: 'doctor',
     phone: ''
   });
+  const [newPatientData, setNewPatientData] = useState({
+    email: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    dateOfBirth: '',
+    address: '',
+    emergencyContact: '',
+    emergencyPhone: ''
+  });
   const [serviceData, setServiceData] = useState({
     name: '',
     description: '',
     durationMinutes: 30,
     price: 0
   });
+
+  // Days of the week for shift schedule
+  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  // Load all doctors for admin to manage
+  const loadDoctors = async () => {
+    try {
+      setIsLoadingDoctors(true);
+      const response = await staffAPI.getAll();
+      const doctorUsers = response.filter((user: any) => user.role === 'doctor');
+      setAllDoctors(doctorUsers);
+      console.log('📋 Loaded doctors for admin:', doctorUsers);
+    } catch (error) {
+      console.error('❌ Error loading doctors:', error);
+      // Fallback: try to get doctors from users list
+      const doctorUsers = users.filter(user => user.role === 'doctor');
+      setAllDoctors(doctorUsers);
+    } finally {
+      setIsLoadingDoctors(false);
+    }
+  };
+
+  // Load doctor's current shift schedule
+  const loadDoctorShiftSchedule = async (doctorId: string) => {
+    try {
+      console.log('🔍 Loading shift schedule for doctor:', doctorId);
+      const schedule = await doctorAPI.getShiftSchedule(doctorId);
+      setDoctorShiftSchedule(schedule);
+      setNewShiftSchedule(schedule);
+      console.log('✅ Loaded shift schedule:', schedule);
+    } catch (error) {
+      console.error('❌ Error loading shift schedule:', error);
+      // Initialize with default schedule if API fails
+      const defaultSchedule = daysOfWeek.map(day => ({
+        dayOfWeek: day,
+        startTime: '09:00',
+        endTime: '17:00',
+        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+      }));
+      setDoctorShiftSchedule(defaultSchedule);
+      setNewShiftSchedule(defaultSchedule);
+    }
+  };
+
+  // Update doctor's shift schedule
+  const updateDoctorShiftSchedule = async () => {
+    if (!selectedDoctor) return;
+    
+    try {
+      setIsUpdatingSchedule(true);
+      console.log('🔄 Updating shift schedule for doctor:', selectedDoctor.id);
+      console.log('📅 New schedule:', newShiftSchedule);
+      
+      await doctorAPI.updateShiftSchedule(selectedDoctor.id, newShiftSchedule);
+      setDoctorShiftSchedule(newShiftSchedule);
+      console.log('✅ Shift schedule updated successfully');
+      
+      // Close modal after successful update
+      setShowDoctorScheduleModal(false);
+      setSelectedDoctor(null);
+    } catch (error) {
+      console.error('❌ Error updating shift schedule:', error);
+      // Still update local state for immediate feedback
+      setDoctorShiftSchedule(newShiftSchedule);
+    } finally {
+      setIsUpdatingSchedule(false);
+    }
+  };
+
+  // Handle doctor selection for schedule management
+  const handleDoctorSelection = async (doctor: Doctor) => {
+    setSelectedDoctor(doctor);
+    setShowDoctorScheduleModal(true);
+    await loadDoctorShiftSchedule(doctor.id);
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -145,6 +265,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       hour12: true
     });
   };
+
+  // Load doctors when component mounts or when schedule tab is active
+  useEffect(() => {
+    if (activeTab === 'schedule') {
+      loadDoctors();
+    }
+  }, [activeTab]);
+
+  // Update newShiftSchedule when modal opens to ensure it has current data
+  useEffect(() => {
+    if (showDoctorScheduleModal && selectedDoctor) {
+      if (doctorShiftSchedule.length > 0) {
+        setNewShiftSchedule(doctorShiftSchedule);
+      } else {
+        // Use defaults when no schedule exists
+        setNewShiftSchedule(daysOfWeek.map(day => ({
+          dayOfWeek: day,
+          startTime: '09:00',
+          endTime: '17:00',
+          isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+        })));
+      }
+    }
+  }, [showDoctorScheduleModal, selectedDoctor, doctorShiftSchedule]);
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -184,9 +328,50 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setNewStaffData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handlePatientInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setNewPatientData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleCreatePatient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await onCreateStaff({
+      ...newPatientData,
+      role: 'patient' // Set role as 'patient' for patients
+    });
+    setShowCreatePatientModal(false);
+    setNewPatientData({
+      email: '',
+      password: '',
+      firstName: '',
+      lastName: '',
+      phone: '',
+      dateOfBirth: '',
+      address: '',
+      emergencyContact: '',
+      emergencyPhone: ''
+    });
+  };
+
+  const handleWalkInBooking = () => {
+    setShowWalkInModal(true);
+  };
+
+  const handlePatientSelection = (patientId: string) => {
+    setSelectedPatientId(patientId);
+    setShowWalkInModal(false);
+    setShowBookingWizard(true);
+  };
+
+  const handleBookingSuccess = () => {
+    setShowBookingWizard(false);
+    setSelectedPatientId(null);
+    // Refresh data if needed
+  };
+
   const activeUsers = users.filter(u => u.isActive);
   const doctors = users.filter(u => u.role === 'doctor' && u.isActive);
-  const patients = users.filter(u => u.role === 'user' && u.isActive);
+  const patients = users.filter(u => u.role === 'patient' && u.isActive);
   const todayAppointments = appointments.filter(apt => 
     new Date(apt.appointmentDate).toDateString() === new Date().toDateString()
   );
@@ -239,6 +424,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             { id: 'users', label: 'User Management', icon: Users },
             { id: 'appointments', label: 'Appointments', icon: Calendar },
             { id: 'services', label: 'Service Management', icon: Settings },
+            { id: 'schedule', label: 'Doctor Schedules', icon: CalendarDays },
             { id: 'reports', label: 'Reports', icon: BarChart3 },
             { id: 'staff', label: 'Staff Management', icon: UserPlus }
           ].map(({ id, label, icon: Icon }) => (
@@ -382,10 +568,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="space-y-6">
             <Card className="medical-card">
               <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Users className="h-5 w-5 text-primary" />
-                  <span>User Management</span>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-5 w-5 text-primary" />
+                    <span>User Management</span>
+                  </div>
+                  <div className="flex space-x-2">
+                    <Button onClick={() => setShowCreateStaffModal(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add User
+                    </Button>
+                    <Button onClick={() => setShowCreatePatientModal(true)} variant="outline">
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Add Patient
+                    </Button>
+                  </div>
+                </div>
                 <CardDescription>
                   Manage system users and their roles
                 </CardDescription>
@@ -430,7 +628,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   className="px-2 py-1 text-sm border rounded"
                                   disabled={isProcessing}
                                 >
-                                  <option value="user">Patient</option>
+                                  <option value="patient">Patient</option>
                                   <option value="doctor">Doctor</option>
                                   <option value="admin">Admin</option>
                                 </select>
@@ -452,10 +650,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="space-y-6">
             <Card className="medical-card">
               <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Calendar className="h-5 w-5 text-primary" />
-                  <span>All Appointments</span>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="h-5 w-5 text-primary" />
+                    <span>All Appointments</span>
+                  </div>
+                  <Button onClick={handleWalkInBooking}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Book Walk-in Appointment
+                  </Button>
+                </div>
                 <CardDescription>
                   View and manage all system appointments
                 </CardDescription>
@@ -655,6 +859,74 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Doctor Schedule Management Tab */}
+        {activeTab === 'schedule' && (
+          <div className="space-y-6">
+            <Card className="medical-card">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <CalendarDays className="h-5 w-5 text-primary" />
+                    <span>Doctor Schedule Management</span>
+                  </div>
+                </CardTitle>
+                <CardDescription>
+                  Manage shift schedules for all doctors in the clinic
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingDoctors ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                    <p className="text-muted-foreground mt-2">Loading doctors...</p>
+                  </div>
+                ) : allDoctors.length === 0 ? (
+                  <div className="text-center py-8">
+                    <UserCog className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No doctors found</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Create doctor accounts first to manage their schedules
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {allDoctors.map((doctor) => (
+                        <Card key={doctor.id} className="hover:shadow-md transition-shadow">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="font-semibold text-lg">
+                                  Dr. {doctor.firstName} {doctor.lastName}
+                                </h3>
+                                <p className="text-sm text-muted-foreground">{doctor.email}</p>
+                                <Badge 
+                                  variant={doctor.isActive ? "default" : "secondary"}
+                                  className="mt-2"
+                                >
+                                  {doctor.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                              </div>
+                              <Button
+                                onClick={() => handleDoctorSelection(doctor)}
+                                size="sm"
+                                className="ml-2"
+                              >
+                                <Settings className="h-4 w-4 mr-1" />
+                                Manage Schedule
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -989,6 +1261,374 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Create Patient Modal */}
+      {showCreatePatientModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <CardHeader>
+              <CardTitle>Add New Patient</CardTitle>
+              <CardDescription>
+                Create a new patient account
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleCreatePatient} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input
+                      id="firstName"
+                      name="firstName"
+                      value={newPatientData.firstName}
+                      onChange={handlePatientInputChange}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      name="lastName"
+                      value={newPatientData.lastName}
+                      onChange={handlePatientInputChange}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    value={newPatientData.email}
+                    onChange={handlePatientInputChange}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    name="password"
+                    type="password"
+                    value={newPatientData.password}
+                    onChange={handlePatientInputChange}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    value={newPatientData.phone}
+                    onChange={handlePatientInputChange}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                  <Input
+                    id="dateOfBirth"
+                    name="dateOfBirth"
+                    type="date"
+                    value={newPatientData.dateOfBirth}
+                    onChange={handlePatientInputChange}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    value={newPatientData.address}
+                    onChange={handlePatientInputChange}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="emergencyContact">Emergency Contact</Label>
+                  <Input
+                    id="emergencyContact"
+                    name="emergencyContact"
+                    value={newPatientData.emergencyContact}
+                    onChange={handlePatientInputChange}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="emergencyPhone">Emergency Phone</Label>
+                  <Input
+                    id="emergencyPhone"
+                    name="emergencyPhone"
+                    value={newPatientData.emergencyPhone}
+                    onChange={handlePatientInputChange}
+                    required
+                  />
+                </div>
+
+                <div className="flex space-x-3 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setShowCreatePatientModal(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1"
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? 'Creating...' : 'Create Patient'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Patient Selection Modal for Walk-in */}
+      {showWalkInModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <CardHeader>
+              <CardTitle>Select Patient for Walk-in Appointment</CardTitle>
+              <CardDescription>
+                Choose the patient to book an appointment for
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {patients.length === 0 ? (
+                  <div className="text-center py-8">
+                    <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No patients found</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Create a patient first using the "Add Patient" button
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {patients.map((patient) => (
+                      <div
+                        key={patient.id}
+                        className="border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                        onClick={() => handlePatientSelection(patient.id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-medium text-foreground">
+                              {patient.firstName} {patient.lastName}
+                            </h4>
+                            <p className="text-sm text-muted-foreground">{patient.email}</p>
+                          </div>
+                          <Button size="sm" variant="outline">
+                            Select
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex space-x-3 pt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setShowWalkInModal(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Doctor Schedule Management Modal */}
+      {showDoctorScheduleModal && selectedDoctor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <CalendarDays className="h-5 w-5 text-primary" />
+                <span>Manage Schedule - Dr. {selectedDoctor.firstName} {selectedDoctor.lastName}</span>
+              </CardTitle>
+              <CardDescription>
+                Set the weekly shift schedule for this doctor
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {/* Quick Action Buttons */}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const weekdaysSchedule = daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+                      }));
+                      setNewShiftSchedule(weekdaysSchedule);
+                    }}
+                  >
+                    Set Weekdays (9-5)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const allDaysSchedule = daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: true
+                      }));
+                      setNewShiftSchedule(allDaysSchedule);
+                    }}
+                  >
+                    Set All Days (9-5)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const clearedSchedule = daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: false
+                      }));
+                      setNewShiftSchedule(clearedSchedule);
+                    }}
+                  >
+                    Clear All
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const defaultSchedule = daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+                      }));
+                      setNewShiftSchedule(defaultSchedule);
+                    }}
+                  >
+                    Reset to Defaults
+                  </Button>
+                </div>
+
+                {/* Schedule Grid */}
+                <div className="space-y-4">
+                  {newShiftSchedule.map((shift, index) => (
+                    <div key={shift.dayOfWeek} className="flex items-center space-x-4 p-4 border rounded-lg">
+                      <div className="w-24">
+                        <Label className="font-medium">{shift.dayOfWeek}</Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <Input
+                          type="time"
+                          value={shift.startTime}
+                          onChange={(e) => {
+                            const updatedSchedule = [...newShiftSchedule];
+                            updatedSchedule[index].startTime = e.target.value;
+                            setNewShiftSchedule(updatedSchedule);
+                          }}
+                          className="w-32"
+                        />
+                        <span className="text-muted-foreground">to</span>
+                        <Input
+                          type="time"
+                          value={shift.endTime}
+                          onChange={(e) => {
+                            const updatedSchedule = [...newShiftSchedule];
+                            updatedSchedule[index].endTime = e.target.value;
+                            setNewShiftSchedule(updatedSchedule);
+                          }}
+                          className="w-32"
+                        />
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id={`active-${shift.dayOfWeek}`}
+                          checked={shift.isActive}
+                          onChange={(e) => {
+                            const updatedSchedule = [...newShiftSchedule];
+                            updatedSchedule[index].isActive = e.target.checked;
+                            setNewShiftSchedule(updatedSchedule);
+                          }}
+                          className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                        />
+                        <Label htmlFor={`active-${shift.dayOfWeek}`} className="text-sm">
+                          Available
+                        </Label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex space-x-3 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowDoctorScheduleModal(false);
+                      setSelectedDoctor(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={updateDoctorShiftSchedule}
+                    className="flex-1"
+                    disabled={isUpdatingSchedule}
+                  >
+                    {isUpdatingSchedule ? 'Updating...' : 'Update Schedule'}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Booking Wizard for Walk-in Appointments */}
+      {showBookingWizard && selectedPatientId && (
+        <BookingWizard
+          isOpen={showBookingWizard}
+          onClose={() => {
+            setShowBookingWizard(false);
+            setSelectedPatientId(null);
+          }}
+          onSuccess={handleBookingSuccess}
+          services={services}
+          patientId={selectedPatientId}
+        />
       )}
     </div>
   );

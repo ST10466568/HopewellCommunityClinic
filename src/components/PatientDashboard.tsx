@@ -423,10 +423,17 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({
               <Button 
                 className="w-full" 
                 onClick={() => setShowBookingWizard(true)}
+                disabled={!patientId}
+                title={!patientId ? "Patient account not properly linked. Please contact support." : ""}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Book New Appointment
               </Button>
+              {!patientId && (
+                <p className="text-sm text-red-600 mt-2 text-center">
+                  ⚠️ Your account is not properly linked to a patient record. Please contact support.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -453,10 +460,17 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({
                     variant="outline" 
                     className="mt-4"
                     onClick={() => setShowBookingWizard(true)}
+                    disabled={!patientId}
+                    title={!patientId ? "Patient account not properly linked. Please contact support." : ""}
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Book Appointment
                   </Button>
+                  {!patientId && (
+                    <p className="text-sm text-red-600 mt-2 text-center">
+                      ⚠️ Your account is not properly linked to a patient record. Please contact support.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
