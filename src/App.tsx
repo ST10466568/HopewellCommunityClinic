@@ -814,6 +814,40 @@ const AdminDashboardWrapper: React.FC<{
     }
   };
 
+  const handleApproveAppointment = async (appointmentId: string) => {
+    try {
+      setIsProcessing(true);
+      setError('');
+      // Update the appointment status to confirmed
+      await appointmentsAPI.updateStatus(appointmentId, 'confirmed');
+      await loadDashboardData(); // Refresh data
+    } catch (error: any) {
+      console.error('Error approving appointment:', error);
+      setError(error.response?.data?.error || error.message || 'Failed to approve appointment');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRejectAppointment = async (appointmentId: string, reason: string) => {
+    try {
+      setIsProcessing(true);
+      setError('');
+      // Update the appointment status to cancelled with reason
+      await appointmentsAPI.updateStatus(appointmentId, 'cancelled');
+      // Optionally update notes with rejection reason
+      await appointmentsAPI.update(appointmentId, {
+        notes: `Rejected by admin: ${reason}`
+      });
+      await loadDashboardData(); // Refresh data
+    } catch (error: any) {
+      console.error('Error rejecting appointment:', error);
+      setError(error.response?.data?.error || error.message || 'Failed to reject appointment');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   React.useEffect(() => {
     loadDashboardData();
   }, [user.id]);
@@ -834,6 +868,8 @@ const AdminDashboardWrapper: React.FC<{
     onUpdateService: handleUpdateService,
     onDeleteService: handleDeleteService,
     onRefreshAppointments: loadDashboardData,
+    onApproveAppointment: handleApproveAppointment,
+    onRejectAppointment: handleRejectAppointment,
     onLogout: () => {
       localStorage.removeItem('token');
       window.location.href = '/auth';

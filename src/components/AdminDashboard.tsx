@@ -119,6 +119,8 @@ interface AdminDashboardProps {
   onUpdateService: (serviceId: string, serviceData: any) => Promise<void>;
   onDeleteService: (serviceId: string) => Promise<void>;
   onRefreshAppointments: () => void;
+  onApproveAppointment: (appointmentId: string) => Promise<void>;
+  onRejectAppointment: (appointmentId: string, reason: string) => Promise<void>;
   onLogout: () => void;
 }
 
@@ -137,6 +139,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateService,
   onDeleteService,
   onRefreshAppointments,
+  onApproveAppointment,
+  onRejectAppointment,
   onLogout
 }) => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -904,6 +908,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <AppointmentManagement 
               appointments={appointments} 
               onRefresh={onRefreshAppointments}
+              onApproveAppointment={onApproveAppointment}
+              onRejectAppointment={onRejectAppointment}
             />
           </div>
         )}

@@ -3,7 +3,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
@@ -71,11 +71,15 @@ interface Service {
 interface AppointmentManagementProps {
   appointments: Appointment[];
   onRefresh: () => void;
+  onApproveAppointment?: (appointmentId: string) => Promise<void>;
+  onRejectAppointment?: (appointmentId: string, reason: string) => Promise<void>;
 }
 
 const AppointmentManagement: React.FC<AppointmentManagementProps> = ({ 
   appointments, 
-  onRefresh 
+  onRefresh,
+  onApproveAppointment,
+  onRejectAppointment
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -85,6 +89,9 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [appointmentToDelete, setAppointmentToDelete] = useState<Appointment | null>(null);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [appointmentToReject, setAppointmentToReject] = useState<Appointment | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -292,6 +299,50 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     }
   };
 
+  const handleApproveAppointment = async (appointmentId: string) => {
+    if (onApproveAppointment) {
+      try {
+        setIsLoading(true);
+        setError('');
+        await onApproveAppointment(appointmentId);
+        onRefresh();
+      } catch (error: any) {
+        console.error('Error approving appointment:', error);
+        setError(error.message || 'Failed to approve appointment');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const handleRejectAppointment = (appointment: Appointment) => {
+    setAppointmentToReject(appointment);
+    setRejectReason('');
+    setIsRejectModalOpen(true);
+  };
+
+  const confirmRejectAppointment = async () => {
+    if (!appointmentToReject || !onRejectAppointment) return;
+
+    try {
+      setIsLoading(true);
+      setError('');
+      await onRejectAppointment(appointmentToReject.id, rejectReason);
+      
+      // Close modal and refresh data
+      setIsRejectModalOpen(false);
+      setAppointmentToReject(null);
+      setRejectReason('');
+      onRefresh();
+      
+    } catch (error: any) {
+      console.error('Error rejecting appointment:', error);
+      setError(error.message || 'Failed to reject appointment');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusConfig = {
       confirmed: { variant: 'default' as const, icon: CheckCircle, className: 'bg-green-100 text-green-800' },
@@ -474,6 +525,27 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                   <div className="flex items-center space-x-2">
                     {getStatusBadge(appointment.status)}
                     <div className="flex space-x-1">
+                      {/* Approval/Rejection buttons for pending appointments */}
+                      {appointment.status === 'pending' && onApproveAppointment && onRejectAppointment && (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => handleApproveAppointment(appointment.id)}
+                            disabled={isLoading}
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            <CheckCircle className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleRejectAppointment(appointment)}
+                            disabled={isLoading}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -739,6 +811,60 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             >
               <Trash2 className="h-4 w-4 mr-2" />
               {isLoading ? 'Deleting...' : 'Delete Appointment'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Appointment Modal */}
+      <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Appointment</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting this appointment
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {appointmentToReject && (
+              <div className="p-4 bg-muted rounded-lg">
+                <h4 className="font-medium">
+                  {appointmentToReject.patient.firstName} {appointmentToReject.patient.lastName}
+                </h4>
+                <p className="text-sm text-muted-foreground">
+                  {formatDate(appointmentToReject.appointmentDate)} at {formatTime(appointmentToReject.startTime)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Service: {appointmentToReject.service.name}
+                </p>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="reject-reason">Reason for rejection *</Label>
+              <textarea
+                id="reject-reason"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full h-20 px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 resize-none"
+                placeholder="Please explain why this appointment is being rejected..."
+                required
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={confirmRejectAppointment} 
+              disabled={!rejectReason.trim() || isLoading}
+            >
+              <X className="h-4 w-4 mr-2" />
+              {isLoading ? 'Rejecting...' : 'Reject Appointment'}
             </Button>
           </DialogFooter>
         </DialogContent>
