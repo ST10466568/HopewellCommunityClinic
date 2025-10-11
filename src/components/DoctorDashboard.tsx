@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import DoctorScheduleManager from './DoctorScheduleManager';
+import DailySchedule from './DailySchedule';
 import { 
   Calendar, 
   Clock, 
@@ -19,7 +19,11 @@ import {
   Plus,
   Eye,
   Check,
-  X
+  X,
+  History,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 interface User {
@@ -28,6 +32,7 @@ interface User {
   firstName: string;
   lastName: string;
   role: string;
+  staffId?: string;
 }
 
 interface Appointment {
@@ -37,19 +42,31 @@ interface Appointment {
   endTime: string;
   status: string;
   notes?: string;
-  patient: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    email: string;
+  staffId?: string;
+  doctorId?: string;
+  staff?: {
+    id?: string;
+    staffId?: string;
+    userId?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    role?: string;
+  };
+  patient?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
     phone?: string;
     dateOfBirth?: string;
     medicalHistory?: string;
   };
-  service: {
-    id: string;
-    name: string;
-    durationMinutes: number;
+  service?: {
+    id?: string;
+    name?: string;
+    durationMinutes?: number;
+    price?: number;
   };
 }
 
@@ -109,23 +126,45 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>('');
   const [newShiftSchedule, setNewShiftSchedule] = useState<ShiftSchedule[]>([]);
+  
+  // Pagination and search states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   useEffect(() => {
-    // Initialize shift schedule with current data
+    // Initialize shift schedule with current data or defaults
     if (shiftSchedule.length > 0) {
       setNewShiftSchedule(shiftSchedule);
     } else {
-      // Initialize with empty schedule
+      // Initialize with default schedule (09:00-17:00, Monday-Friday active)
       setNewShiftSchedule(daysOfWeek.map(day => ({
         dayOfWeek: day,
         startTime: '09:00',
         endTime: '17:00',
-        isActive: false
+        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
       })));
     }
   }, [shiftSchedule]);
+
+  // Update newShiftSchedule when modal opens to ensure it has current data
+  useEffect(() => {
+    if (showShiftModal) {
+      if (shiftSchedule.length > 0) {
+        setNewShiftSchedule(shiftSchedule);
+      } else {
+        // Use defaults when no schedule exists
+        setNewShiftSchedule(daysOfWeek.map(day => ({
+          dayOfWeek: day,
+          startTime: '09:00',
+          endTime: '17:00',
+          isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+        })));
+      }
+    }
+  }, [showShiftModal, shiftSchedule]);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -161,6 +200,38 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
         {status.charAt(0).toUpperCase() + status.slice(1)}
       </Badge>
     );
+  };
+
+  // Pagination and search helper functions
+  const filterAppointments = (appointments: Appointment[], searchTerm: string) => {
+    if (!searchTerm) return appointments;
+    
+    const searchLower = searchTerm.toLowerCase();
+    
+    return appointments.filter(appointment => {
+      // Safe string checking with null/undefined protection
+      const firstName = appointment.patient?.firstName || '';
+      const lastName = appointment.patient?.lastName || '';
+      const email = appointment.patient?.email || '';
+      const serviceName = appointment.service?.name || '';
+      const status = appointment.status || '';
+      
+      return firstName.toLowerCase().includes(searchLower) ||
+             lastName.toLowerCase().includes(searchLower) ||
+             email.toLowerCase().includes(searchLower) ||
+             serviceName.toLowerCase().includes(searchLower) ||
+             status.toLowerCase().includes(searchLower);
+    });
+  };
+
+  const paginateAppointments = (appointments: Appointment[], page: number, itemsPerPage: number) => {
+    const startIndex = (page - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return appointments.slice(startIndex, endIndex);
+  };
+
+  const getTotalPages = (totalItems: number, itemsPerPage: number) => {
+    return Math.ceil(totalItems / itemsPerPage);
   };
 
   const handleShiftChange = (dayIndex: number, field: keyof ShiftSchedule, value: any) => {
@@ -334,13 +405,13 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <h4 className="font-medium text-foreground">
-                              {appointment.patient.firstName} {appointment.patient.lastName}
+                              {appointment.patient?.firstName || 'Unknown'} {appointment.patient?.lastName || 'Patient'}
                             </h4>
                             <p className="text-sm text-muted-foreground">
                               {formatDate(appointment.appointmentDate)} at {formatTime(appointment.startTime)}
                             </p>
                             <p className="text-sm text-muted-foreground">
-                              {appointment.service.name}
+                              {appointment.service?.name || 'Unknown Service'}
                             </p>
                           </div>
                           {getStatusBadge(appointment.status)}
@@ -363,77 +434,234 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
         {/* Appointments Tab */}
         {activeTab === 'appointments' && (
           <div className="space-y-6">
+            {/* Search Bar */}
+            <Card className="medical-card">
+              <CardContent className="pt-6">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search appointments by patient name, email, service, or status..."
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setCurrentPage(1); // Reset to first page when searching
+                    }}
+                    className="pl-10"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Pending Appointments */}
             <Card className="medical-card">
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Clock className="h-5 w-5 text-primary" />
-                  <span>Appointment Management</span>
+                  <span>Pending Appointments</span>
                 </CardTitle>
                 <CardDescription>
-                  Review and manage patient appointments
+                  Review and approve pending appointment requests
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {appointments.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">No appointments to review</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {appointments.map((appointment) => (
-                      <div key={appointment.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-foreground">
-                              {appointment.patient.firstName} {appointment.patient.lastName}
-                            </h4>
-                            <p className="text-sm text-muted-foreground">
-                              {formatDate(appointment.appointmentDate)} at {formatTime(appointment.startTime)}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              Service: {appointment.service.name} ({appointment.service.durationMinutes} min)
-                            </p>
-                            {appointment.notes && (
-                              <p className="text-sm text-muted-foreground mt-2">
-                                <FileText className="h-3 w-3 inline mr-1" />
-                                {appointment.notes}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end space-y-2">
-                            {getStatusBadge(appointment.status)}
-                            {appointment.status === 'pending' && (
-                              <div className="flex space-x-2">
-                                <Button
-                                  size="sm"
-                                  onClick={() => onApproveAppointment(appointment.id)}
-                                  disabled={isProcessing}
-                                  className="bg-green-600 hover:bg-green-700"
-                                >
-                                  <Check className="h-3 w-3 mr-1" />
-                                  Approve
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => {
-                                    setSelectedAppointmentId(appointment.id);
-                                    setShowRejectModal(true);
-                                  }}
-                                  disabled={isProcessing}
-                                >
-                                  <X className="h-3 w-3 mr-1" />
-                                  Reject
-                                </Button>
+                {(() => {
+                  const pendingAppointments = appointments.filter(apt => apt.status === 'pending');
+                  const filteredPending = filterAppointments(pendingAppointments, searchTerm);
+                  const paginatedPending = paginateAppointments(filteredPending, currentPage, itemsPerPage);
+                  const totalPendingPages = getTotalPages(filteredPending.length, itemsPerPage);
+
+                  return filteredPending.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">
+                        {searchTerm ? 'No pending appointments match your search' : 'No pending appointments to review'}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-4">
+                        {paginatedPending.map((appointment) => (
+                          <div key={appointment.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <h4 className="font-medium text-foreground">
+                                  {appointment.patient?.firstName || 'Unknown'} {appointment.patient?.lastName || 'Patient'}
+                                </h4>
+                                <p className="text-sm text-muted-foreground">
+                                  {formatDate(appointment.appointmentDate)} at {formatTime(appointment.startTime)}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  Service: {appointment.service?.name || 'Unknown Service'} ({appointment.service?.durationMinutes || 0} min)
+                                </p>
+                                {appointment.notes && (
+                                  <p className="text-sm text-muted-foreground mt-2">
+                                    <FileText className="h-3 w-3 inline mr-1" />
+                                    {appointment.notes}
+                                  </p>
+                                )}
                               </div>
-                            )}
+                              <div className="flex flex-col items-end space-y-2">
+                                {getStatusBadge(appointment.status)}
+                                <div className="flex space-x-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => onApproveAppointment(appointment.id)}
+                                    disabled={isProcessing}
+                                    className="bg-green-600 hover:bg-green-700"
+                                  >
+                                    <Check className="h-3 w-3 mr-1" />
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => {
+                                      setSelectedAppointmentId(appointment.id);
+                                      setShowRejectModal(true);
+                                    }}
+                                    disabled={isProcessing}
+                                  >
+                                    <X className="h-3 w-3 mr-1" />
+                                    Reject
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Pagination for Pending */}
+                      {totalPendingPages > 1 && (
+                        <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                          <div className="text-sm text-muted-foreground">
+                            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredPending.length)} of {filteredPending.length} pending appointments
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                              disabled={currentPage === 1}
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                              Previous
+                            </Button>
+                            <span className="text-sm">
+                              Page {currentPage} of {totalPendingPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPendingPages))}
+                              disabled={currentPage === totalPendingPages}
+                            >
+                              Next
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
+            {/* Historical Appointments */}
+            <Card className="medical-card">
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <History className="h-5 w-5 text-primary" />
+                  <span>Appointment History</span>
+                </CardTitle>
+                <CardDescription>
+                  View previously approved and cancelled appointments
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  const historicalAppointments = appointments.filter(apt => 
+                    apt.status === 'confirmed' || apt.status === 'cancelled' || apt.status === 'completed'
+                  );
+                  const filteredHistorical = filterAppointments(historicalAppointments, searchTerm);
+                  const paginatedHistorical = paginateAppointments(filteredHistorical, currentPage, itemsPerPage);
+                  const totalHistoricalPages = getTotalPages(filteredHistorical.length, itemsPerPage);
+
+                  return filteredHistorical.length === 0 ? (
+                    <div className="text-center py-8">
+                      <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">
+                        {searchTerm ? 'No historical appointments match your search' : 'No historical appointments found'}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-4">
+                        {paginatedHistorical
+                          .sort((a, b) => new Date(b.appointmentDate).getTime() - new Date(a.appointmentDate).getTime())
+                          .map((appointment) => (
+                          <div key={appointment.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <h4 className="font-medium text-foreground">
+                                  {appointment.patient?.firstName || 'Unknown'} {appointment.patient?.lastName || 'Patient'}
+                                </h4>
+                                <p className="text-sm text-muted-foreground">
+                                  {formatDate(appointment.appointmentDate)} at {formatTime(appointment.startTime)}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  Service: {appointment.service?.name || 'Unknown Service'} ({appointment.service?.durationMinutes || 0} min)
+                                </p>
+                                {appointment.notes && (
+                                  <p className="text-sm text-muted-foreground mt-2">
+                                    <FileText className="h-3 w-3 inline mr-1" />
+                                    {appointment.notes}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end space-y-2">
+                                {getStatusBadge(appointment.status)}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      
+                      {/* Pagination for Historical */}
+                      {totalHistoricalPages > 1 && (
+                        <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                          <div className="text-sm text-muted-foreground">
+                            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredHistorical.length)} of {filteredHistorical.length} historical appointments
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                              disabled={currentPage === 1}
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                              Previous
+                            </Button>
+                            <span className="text-sm">
+                              Page {currentPage} of {totalHistoricalPages}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalHistoricalPages))}
+                              disabled={currentPage === totalHistoricalPages}
+                            >
+                              Next
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </CardContent>
             </Card>
           </div>
@@ -498,13 +726,91 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
         {/* Schedule Tab */}
         {activeTab === 'schedule' && (
           <div className="space-y-6">
-            <DoctorScheduleManager 
-              doctorId={user.id}
-              onScheduleUpdate={(schedule) => {
-                // Schedule update will be handled by the parent component
-                console.log('Schedule updated:', schedule);
-              }}
-            />
+            {/* Daily Schedule View */}
+            {(() => {
+              const doctorId = user.staffId || user.id;
+              console.log('🔍 DoctorDashboard Schedule Tab - user:', user);
+              console.log('🔍 DoctorDashboard Schedule Tab - doctorId:', doctorId);
+              console.log('🔍 DoctorDashboard Schedule Tab - user.staffId:', user.staffId);
+              console.log('🔍 DoctorDashboard Schedule Tab - user.id:', user.id);
+              
+              // Ensure we're using the staff ID, not the user ID
+              if (!user.staffId) {
+                console.error('❌ DoctorDashboard: No staffId found in user object!');
+                console.log('❌ DoctorDashboard: User object keys:', Object.keys(user));
+                console.log('❌ DoctorDashboard: Using fallback staff ID for testing');
+                // TEMPORARY: Use a known valid staff ID for testing
+                const fallbackStaffId = '42f78af2-c1c5-486c-9de5-0e7e44a8f0da'; // Dr. John Smith
+                return (
+                  <DailySchedule 
+                    doctorId={fallbackStaffId}
+                    onBookAppointment={() => {
+                      console.log('Book appointment clicked');
+                    }}
+                  />
+                );
+              }
+              
+              return (
+                <DailySchedule 
+                  doctorId={user.staffId}
+                  onBookAppointment={() => {
+                    // This could open a booking modal or navigate to booking page
+                    console.log('Book appointment clicked');
+                  }}
+                />
+              );
+            })()}
+            
+            {/* Shift Schedule Management */}
+            <Card className="medical-card">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Settings className="h-5 w-5 text-primary" />
+                    <span>Shift Schedule</span>
+                  </div>
+                  <Button onClick={() => setShowShiftModal(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Manage Shifts
+                  </Button>
+                </CardTitle>
+                <CardDescription>
+                  Set your availability for patient appointments
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {shiftSchedule.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Settings className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No shift schedule set</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Click "Manage Shifts" to set your availability
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {shiftSchedule.map((shift) => (
+                      <div key={shift.dayOfWeek} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-24">
+                            <span className="font-medium">{shift.dayOfWeek}</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-muted-foreground">
+                              {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
+                            </span>
+                          </div>
+                        </div>
+                        <Badge variant={shift.isActive ? "default" : "secondary"}>
+                          {shift.isActive ? "Available" : "Off"}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>
@@ -521,6 +827,68 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
+                {/* Quick Actions */}
+                <div className="flex space-x-2 pb-4 border-b">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setNewShiftSchedule(daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+                      })));
+                    }}
+                  >
+                    Set Weekdays (9-5)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setNewShiftSchedule(daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: true
+                      })));
+                    }}
+                  >
+                    Set All Days (9-5)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setNewShiftSchedule(daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: false
+                      })));
+                    }}
+                  >
+                    Clear All
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const defaultSchedule = daysOfWeek.map(day => ({
+                        dayOfWeek: day,
+                        startTime: '09:00',
+                        endTime: '17:00',
+                        isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
+                      }));
+                      setNewShiftSchedule(defaultSchedule);
+                    }}
+                  >
+                    Reset to Defaults
+                  </Button>
+                </div>
+
+                {/* Individual Day Settings */}
                 {newShiftSchedule.map((shift, index) => (
                   <div key={shift.dayOfWeek} className="flex items-center space-x-4 p-3 border rounded-lg">
                     <div className="w-24">
@@ -648,14 +1016,14 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
       {/* Reject Appointment Modal */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+          <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle>Reject Appointment</CardTitle>
               <CardDescription>
                 Please provide a reason for rejecting this appointment
               </CardDescription>
             </CardHeader>
-            <CardContent className="overflow-y-auto flex-1">
+            <CardContent>
               <div className="space-y-4">
                 <div>
                   <Label htmlFor="reject-reason">Reason for rejection</Label>

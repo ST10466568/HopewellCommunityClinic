@@ -29,29 +29,31 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Only logout if this is an authentication-related endpoint or if we're in mock mode
-      const isAuthEndpoint = error.config?.url?.includes('/Auth/');
-      const isLoginEndpoint = error.config?.url?.includes('/login');
-      const isRegisterEndpoint = error.config?.url?.includes('/register');
-      
-      // Real API mode - be more careful about when to logout
-      if (isAuthEndpoint) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        if (window.location.pathname !== '/auth') {
-          window.location.href = '/auth';
-        }
+      // Token expired or invalid - only redirect if not already on auth page
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (window.location.pathname !== '/auth') {
+        window.location.href = '/auth';
       }
     }
     return Promise.reject(error);
   }
 );
 
-// Real API only - no mock mode
+// Mock API for testing when backend is not available
+const MOCK_MODE = false; // Set to false when backend is running
 
 // Auth API
 export const authAPI = {
   register: async (userData) => {
+    if (MOCK_MODE) {
+      // Mock successful registration
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({ message: "User registered successfully." });
+        }, 1000);
+      });
+    }
     
     try {
       console.log('Attempting registration to:', API_BASE_URL + '/Auth/register');
@@ -68,6 +70,23 @@ export const authAPI = {
   },
 
   login: async (credentials) => {
+    if (MOCK_MODE) {
+      // Mock successful login
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({
+            token: "mock-jwt-token-" + Date.now(),
+            user: {
+              id: "mock-user-id",
+              email: credentials.email,
+              firstName: "Mock",
+              lastName: "User",
+              roles: ["patient"]
+            }
+          });
+        }, 1000);
+      });
+    }
     
     try {
       console.log('Attempting login to:', API_BASE_URL + '/Auth/login');
@@ -84,6 +103,14 @@ export const authAPI = {
   },
 
   logout: async () => {
+    if (MOCK_MODE) {
+      // Mock successful logout
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({ message: "Logged out successfully" });
+        }, 500);
+      });
+    }
     
     try {
       const response = await api.post('/Auth/logout');
@@ -97,7 +124,6 @@ export const authAPI = {
 // Services API
 export const servicesAPI = {
   getAll: async () => {
-    
     try {
       console.log('Fetching services from:', API_BASE_URL + '/Services');
       const response = await api.get('/Services');
@@ -186,7 +212,6 @@ export const staffAPI = {
   },
 
   getByRole: async (role) => {
-    
     try {
       const response = await api.get(`/Staff/by-role/${role}`);
       return response.data;
@@ -248,69 +273,6 @@ export const appointmentsAPI = {
     }
   },
 
-  getDoctorsOnDuty: async (date, serviceId = null) => {
-    
-    try {
-      const params = { date };
-      if (serviceId) params.serviceId = serviceId;
-      
-      const response = await api.get('/Booking/doctors-on-duty', { params });
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching doctors on duty:', error);
-      console.error('Error status:', error.response?.status);
-      
-      // Fallback to existing staff API if new endpoint returns 500 or doesn't exist
-      if (error.response?.status === 500 || error.response?.status === 404) {
-        try {
-          console.log('Falling back to staff API...');
-          const staffResponse = await api.get('/Staff/by-role/doctor');
-          return { doctors: staffResponse.data };
-        } catch (fallbackError) {
-          console.error('Fallback also failed:', fallbackError);
-          // Return empty array instead of throwing to prevent UI crashes
-          console.log('Returning empty doctors array due to API failures');
-          return { doctors: [] };
-        }
-      }
-      
-      throw error.response?.data || error.message;
-    }
-  },
-
-  getAvailableSlotsByDoctor: async (doctorId, date, serviceId = null) => {
-    try {
-      // Try the new doctor-specific endpoint first
-      const params = { doctorId, date };
-      if (serviceId) params.serviceId = serviceId;
-      
-      const response = await api.get('/Booking/available-slots-by-doctor', { params });
-      return response.data;
-    } catch (error) {
-      console.error('Doctor-specific slots endpoint error:', error);
-      console.error('Error status:', error.response?.status);
-      
-      // Fallback to existing available slots API with doctor filter
-      if (error.response?.status === 500 || error.response?.status === 404) {
-        try {
-          console.log('Falling back to generic slots API...');
-          const params = { date, doctorId };
-          if (serviceId) params.serviceId = serviceId;
-          
-          const slotsResponse = await api.get('/Booking/available-slots', { params });
-          return { availableSlots: slotsResponse.data };
-        } catch (fallbackError) {
-          console.error('Both slot endpoints failed:', fallbackError);
-          // Return empty array instead of throwing to prevent UI crashes
-          console.log('Returning empty slots array due to API failures');
-          return { availableSlots: [] };
-        }
-      }
-      
-      throw error.response?.data || error.message;
-    }
-  },
-
   getById: async (id) => {
     try {
       const response = await api.get(`/Appointments/${id}`);
@@ -321,7 +283,6 @@ export const appointmentsAPI = {
   },
 
   getByPatient: async (patientId) => {
-    
     try {
       const response = await api.get(`/Appointments/patient/${patientId}`);
       return response.data;
@@ -408,6 +369,216 @@ export const appointmentsAPI = {
       throw error.response?.data || error.message;
     }
   },
+
+  getDoctorsOnDuty: async (date, serviceId = null) => {
+    try {
+      const params = { date };
+      if (serviceId) params.serviceId = serviceId;
+      
+      console.log('🔍 API: Getting doctors on duty for date:', date);
+      const response = await api.get('/Booking/doctors-on-duty', { params });
+      console.log('✅ API: Doctors on duty response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ API: Error fetching doctors on duty:', error);
+      console.error('❌ API: Error status:', error.response?.status);
+      
+      // Fallback to existing staff API if new endpoint returns 500 or doesn't exist
+      if (error.response?.status === 500 || error.response?.status === 404) {
+        try {
+          console.log('🔄 API: Falling back to staff API...');
+          const staffResponse = await api.get('/Staff/by-role/doctor');
+          const doctors = staffResponse.data;
+          
+          // Filter doctors based on their shift schedule for the requested date
+          const availableDoctors = await appointmentsAPI.filterDoctorsByAvailability(doctors, date);
+          console.log('✅ API: Filtered available doctors:', availableDoctors.length);
+          
+          return { doctors: availableDoctors };
+        } catch (fallbackError) {
+          console.error('❌ API: Fallback also failed:', fallbackError);
+          // Return empty array instead of throwing to prevent UI crashes
+          console.log('⚠️ API: Returning empty doctors array due to API failures');
+          return { doctors: [] };
+        }
+      }
+      
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Helper function to filter doctors by their availability on a specific date
+  filterDoctorsByAvailability: async (doctors, date) => {
+    try {
+      const selectedDate = new Date(date);
+      const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      console.log('🔍 API: Filtering doctors for:', { date, dayOfWeek });
+      
+      const availableDoctors = [];
+      
+      for (const doctor of doctors) {
+        try {
+          // Get doctor's shift schedule
+          const shiftResponse = await api.get(`/Doctor/${doctor.id}/shifts`);
+          const shiftSchedule = shiftResponse.data;
+          
+          // Check if doctor is available on this day
+          const dayShift = shiftSchedule.find(shift => 
+            shift.dayOfWeek === dayOfWeek && shift.isActive
+          );
+          
+          if (dayShift) {
+            console.log(`✅ API: Doctor ${doctor.firstName} ${doctor.lastName} is available on ${dayOfWeek} (${dayShift.startTime} - ${dayShift.endTime})`);
+            availableDoctors.push({
+              ...doctor,
+              shiftStart: dayShift.startTime,
+              shiftEnd: dayShift.endTime,
+              isAvailable: true
+            });
+          } else {
+            console.log(`❌ API: Doctor ${doctor.firstName} ${doctor.lastName} is not available on ${dayOfWeek}`);
+          }
+        } catch (shiftError) {
+          console.log(`⚠️ API: Could not check shift schedule for doctor ${doctor.firstName} ${doctor.lastName}, including anyway`);
+          // If we can't check shift schedule, include the doctor anyway
+          availableDoctors.push({
+            ...doctor,
+            isAvailable: true
+          });
+        }
+      }
+      
+      return availableDoctors;
+    } catch (error) {
+      console.error('❌ API: Error filtering doctors by availability:', error);
+      // Return all doctors if filtering fails
+      return doctors.map(doctor => ({ ...doctor, isAvailable: true }));
+    }
+  },
+
+  getAvailableSlotsByDoctor: async (doctorId, date, serviceId = null) => {
+    try {
+      // Try the new doctor-specific endpoint first
+      const params = { doctorId, date };
+      if (serviceId) params.serviceId = serviceId;
+      
+      const response = await api.get('/Booking/available-slots-by-doctor', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Doctor-specific slots endpoint error:', error);
+      console.error('Error status:', error.response?.status);
+      
+      // Fallback to existing available slots API with doctor filter
+      if (error.response?.status === 500 || error.response?.status === 404) {
+        try {
+          console.log('Falling back to generic slots API...');
+          const params = { date, doctorId };
+          if (serviceId) params.serviceId = serviceId;
+          
+          const slotsResponse = await api.get('/Booking/available-slots', { params });
+          return { availableSlots: slotsResponse.data };
+        } catch (fallbackError) {
+          console.error('Both slot endpoints failed:', fallbackError);
+          // Return empty array instead of throwing to prevent UI crashes
+          console.log('Returning empty slots array due to API failures');
+          return { availableSlots: [] };
+        }
+      }
+      
+      throw error.response?.data || error.message;
+    }
+  },
+
+  getByDoctorAndDate: async (doctorId, date) => {
+    try {
+      console.log('🔍 API: getByDoctorAndDate called with:', { doctorId, date });
+      console.log('🔍 API: Full URL will be:', `${API_BASE_URL}/Appointments/doctor/${doctorId}/date/${date}`);
+      
+      // Validate doctor ID format
+      if (!doctorId || doctorId.length !== 36) {
+        console.error('❌ API: Invalid doctor ID format:', doctorId);
+        throw new Error('Invalid doctor ID format');
+      }
+      
+      // Validate date format
+      if (!date || !date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        console.error('❌ API: Invalid date format:', date);
+        throw new Error('Invalid date format. Expected YYYY-MM-DD');
+      }
+      
+      const response = await api.get(`/Appointments/doctor/${doctorId}/date/${date}`);
+      console.log('✅ API: Direct endpoint response:', response.data);
+      console.log('✅ API: Response length:', response.data?.appointments?.length || response.data?.length || 0);
+      
+      // Handle the expected response format: { appointments: [...], totalAppointmentsFound: N }
+      let appointments = [];
+      if (response.data && response.data.appointments) {
+        appointments = response.data.appointments;
+        console.log('✅ API: Extracted appointments from response.appointments:', appointments.length);
+      } else if (Array.isArray(response.data)) {
+        appointments = response.data;
+        console.log('✅ API: Response is direct array:', appointments.length);
+      }
+      
+      // If the direct endpoint returns empty array, try the fallback anyway
+      if (!appointments || appointments.length === 0) {
+        console.log('⚠️ API: Direct endpoint returned empty array, trying fallback...');
+        throw new Error('Direct endpoint returned empty array');
+      }
+      
+      console.log('✅ API: Successfully retrieved appointments from direct endpoint:', appointments.length);
+      return appointments;
+    } catch (error) {
+      console.error('❌ API: Doctor-specific date endpoint error:', error);
+      console.error('❌ API: Error status:', error.response?.status);
+      console.error('❌ API: Error response:', error.response?.data);
+      
+      // Fallback: Get all appointments and filter on the frontend
+      if (error.response?.status === 404 || error.response?.status === 500 || error.message === 'Direct endpoint returned empty array') {
+        try {
+          console.log('🔄 API: Falling back to filtering all appointments...');
+          console.log('🎯 API: Looking for doctor ID:', doctorId);
+          console.log('📅 API: Looking for date:', date);
+          
+          // Use the new public endpoint instead of the authenticated one
+          const allAppointments = await api.get('/Appointments/all-appointments');
+          const appointments = allAppointments.data;
+          
+          console.log('📋 API: Total appointments fetched:', appointments.length);
+          console.log('📋 API: Sample appointment structure:', appointments[0]);
+          console.log('📋 API: Full appointment structure keys:', Object.keys(appointments[0]));
+          
+          // Let's examine all appointments on the target date to see their structure
+          const appointmentsOnDate = appointments.filter(apt => {
+            const appointmentDate = new Date(apt.appointmentDate).toISOString().split('T')[0];
+            return appointmentDate === date;
+          });
+          
+          console.log('📅 API: Appointments on target date:', appointmentsOnDate.length);
+          console.log('📅 API: Sample appointment on date:', appointmentsOnDate[0]);
+          
+          // Filter by doctor ID (check both staffId and doctorId fields)
+          const doctorAppointments = appointmentsOnDate.filter(apt => {
+            const matchesStaffId = apt.staffId === doctorId;
+            const matchesDoctorId = apt.doctorId === doctorId;
+            console.log(`🔍 API: Checking appointment ${apt.id}: staffId=${apt.staffId}, doctorId=${apt.doctorId}, matchesStaffId=${matchesStaffId}, matchesDoctorId=${matchesDoctorId}`);
+            return matchesStaffId || matchesDoctorId;
+          });
+          
+          console.log('👨‍⚕️ API: Doctor-specific appointments found:', doctorAppointments.length);
+          console.log('👨‍⚕️ API: Doctor appointments:', doctorAppointments);
+          
+          return doctorAppointments;
+        } catch (fallbackError) {
+          console.error('❌ API: Fallback also failed:', fallbackError);
+          throw fallbackError;
+        }
+      }
+      
+      throw error.response?.data || error.message;
+    }
+  },
 };
 
 // Patients API
@@ -431,7 +602,6 @@ export const patientsAPI = {
   },
 
   getByUserId: async (userId) => {
-    
     try {
       // Get all patients and find the one with matching userId
       const response = await api.get('/Patients');
@@ -505,24 +675,6 @@ export const doctorAPI = {
     }
   },
 
-  updateShiftSchedule: async (doctorId, shiftData) => {
-    try {
-      const response = await api.put(`/Doctor/${doctorId}/shifts`, shiftData);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-
-  getShiftSchedule: async (doctorId) => {
-    try {
-      const response = await api.get(`/Doctor/${doctorId}/shifts`);
-      return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
-
   approveAppointment: async (appointmentId) => {
     try {
       const response = await api.put(`/Doctor/appointments/${appointmentId}/approve`);
@@ -553,6 +705,24 @@ export const doctorAPI = {
   createWalkinAppointment: async (appointmentData) => {
     try {
       const response = await api.post('/Doctor/appointments/walkin', appointmentData);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  getShiftSchedule: async (doctorId) => {
+    try {
+      const response = await api.get(`/Doctor/${doctorId}/shifts`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  updateShiftSchedule: async (doctorId, shiftData) => {
+    try {
+      const response = await api.put(`/Doctor/${doctorId}/shifts`, shiftData);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;

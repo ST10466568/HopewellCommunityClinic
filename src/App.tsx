@@ -43,50 +43,58 @@ const DashboardWrapper: React.FC<{
   children: (props: any) => React.ReactNode;
   user: any;
 }> = ({ children, user }) => {
-  const [appointments, setAppointments] = React.useState<any[]>([]);
-  const [services, setServices] = React.useState<any[]>([]);
-  const [doctors, setDoctors] = React.useState<any[]>([]);
-  const [availableSlots, setAvailableSlots] = React.useState<any[]>([]);
+  const [appointments, setAppointments] = React.useState([]);
+  const [services, setServices] = React.useState([]);
+  const [doctors, setDoctors] = React.useState([]);
+  const [availableSlots, setAvailableSlots] = React.useState([]);
   const [patientId, setPatientId] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isBooking, setIsBooking] = React.useState(false);
   const [bookingError, setBookingError] = React.useState('');
-  const [error, setError] = React.useState('');
 
   const loadDashboardData = async () => {
     try {
       setIsLoading(true);
-      setError(''); // Clear any previous errors
       
       // Get the Patient ID from the ApplicationUser ID
-      let currentPatientId = null;
+      console.log('🔍 Loading dashboard data for user:', user);
+      console.log('🔍 User ID:', user.id);
+      
       try {
         const patient = await patientsAPI.getByUserId(user.id);
-        currentPatientId = patient.id;
+        console.log('✅ Found patient record:', patient);
         setPatientId(patient.id);
-      } catch (error) {
-        console.error('❌ Failed to get patient data:', error);
-        setError('Failed to get patient data. Please try again.');
-        return;
-      }
-      
-      // Try to load data, but don't fail if APIs are not available
-      try {
+        
         const [appointmentsData, servicesData, doctorsData] = await Promise.all([
-          appointmentsAPI.getByPatient(currentPatientId),
+          appointmentsAPI.getByPatient(patient.id),
           servicesAPI.getAll(),
           staffAPI.getByRole('doctor')
         ]);
         setAppointments(appointmentsData);
         setServices(servicesData);
         setDoctors(doctorsData);
-      } catch (error) {
-        console.error('❌ Failed to load dashboard data:', error);
-        setError('Failed to load dashboard data. Please try again.');
+      } catch (patientError) {
+        console.error('❌ Error finding patient record:', patientError);
+        console.log('⚠️ Patient not found for user ID:', user.id);
+        
+        // Set patientId to null to trigger the error in BookingWizard
+        setPatientId(null);
+        
+        // Still try to load other data
+        try {
+          const [servicesData, doctorsData] = await Promise.all([
+            servicesAPI.getAll(),
+            staffAPI.getByRole('doctor')
+          ]);
+          setServices(servicesData);
+          setDoctors(doctorsData);
+          setAppointments([]); // No appointments without patient
+        } catch (otherError) {
+          console.error('❌ Error loading other dashboard data:', otherError);
+        }
       }
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
-      setError('Failed to load dashboard data. Please try again.');
+      console.error('❌ Error loading dashboard data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -204,12 +212,7 @@ const DashboardWrapper: React.FC<{
   };
 
   React.useEffect(() => {
-    // Add a small delay to ensure user is fully logged in before making API calls
-    const timer = setTimeout(() => {
-      loadDashboardData();
-    }, 100);
-    
-    return () => clearTimeout(timer);
+    loadDashboardData();
   }, [user.id]);
 
   // Call children as a function with props
@@ -223,7 +226,6 @@ const DashboardWrapper: React.FC<{
     isLoading,
     isBooking,
     bookingError,
-    error,
     onBookAppointment: handleBookAppointment,
     onUpdateAppointment: handleUpdateAppointment,
     onCancelAppointment: handleCancelAppointment,
@@ -240,6 +242,7 @@ const DoctorDashboardWrapper: React.FC<{
   const [appointments, setAppointments] = React.useState<any[]>([]);
   const [patients, setPatients] = React.useState<any[]>([]);
   const [shiftSchedule, setShiftSchedule] = React.useState<any[]>([]);
+  const [staffId, setStaffId] = React.useState<string>('');
   const [isLoading, setIsLoading] = React.useState(true);
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -249,18 +252,70 @@ const DoctorDashboardWrapper: React.FC<{
       setIsLoading(true);
       setError('');
 
-      // For now, use existing endpoints that work
-      // Get all appointments (we'll filter by doctor later when backend supports it)
+      // Get the Staff record for this user
+      try {
+        console.log('🔍 Looking up staff record for user:', user);
+        console.log('User ID to match:', user.id);
+        console.log('User email to match:', user.email);
+        
+        const allStaff = await staffAPI.getAll();
+        console.log('📋 All staff records:', allStaff);
+        
+        // Try to find by userId first
+        let staffRecord = allStaff.find((s: any) => s.userId === user.id);
+        
+        // If not found, try by email
+        if (!staffRecord) {
+          console.log('⚠️ No match by userId, trying email match...');
+          staffRecord = allStaff.find((s: any) => s.email?.toLowerCase() === user.email?.toLowerCase());
+        }
+        
+        // If still not found, try by role='doctor' and similar name
+        if (!staffRecord && user.role === 'doctor') {
+          console.log('⚠️ No match by email, trying name match for doctors...');
+          staffRecord = allStaff.find((s: any) => 
+            s.role === 'doctor' && 
+            s.firstName?.toLowerCase() === user.firstName?.toLowerCase() &&
+            s.lastName?.toLowerCase() === user.lastName?.toLowerCase()
+          );
+        }
+        
+        if (staffRecord) {
+          console.log('✅ Found staff record:', staffRecord);
+          console.log('✅ Staff ID to use:', staffRecord.id);
+          console.log('✅ Staff ID type:', typeof staffRecord.id);
+          console.log('✅ Staff ID length:', staffRecord.id.length);
+          setStaffId(staffRecord.id);
+          
+          // Update the user object with the staff ID
+          user.staffId = staffRecord.id;
+          console.log('✅ Updated user.staffId to:', user.staffId);
+        } else {
+          console.error('❌ NO STAFF RECORD FOUND!');
+          console.log('User details:', { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName });
+          console.log('Available staff records:', allStaff.map((s: any) => ({
+            id: s.id,
+            userId: s.userId,
+            email: s.email,
+            firstName: s.firstName,
+            lastName: s.lastName,
+            role: s.role
+          })));
+        }
+      } catch (staffError) {
+        console.error('❌ Error fetching staff record:', staffError);
+      }
+
+      // Get all appointments
       try {
         const appointmentsData = await appointmentsAPI.getAll();
-        // Filter appointments for this doctor (when staffId is available)
         setAppointments(appointmentsData);
       } catch (appointmentsError) {
         console.log('No appointments endpoint available yet');
         setAppointments([]);
       }
 
-      // Get all patients (we'll filter by doctor later when backend supports it)
+      // Get all patients
       try {
         const patientsData = await patientsAPI.getAll();
         setPatients(patientsData);
@@ -269,8 +324,38 @@ const DoctorDashboardWrapper: React.FC<{
         setPatients([]);
       }
 
-      // Initialize empty shift schedule (backend not implemented yet)
-      setShiftSchedule([]);
+      // Load shift schedule from localStorage or use defaults
+      const loadShiftScheduleFromStorage = () => {
+        try {
+          const currentStaffId = staffId || user.staffId;
+          const storageKey = `shiftSchedule_${currentStaffId}`;
+          const savedSchedule = localStorage.getItem(storageKey);
+          
+          if (savedSchedule) {
+            console.log('🔧 Loading saved shift schedule from localStorage');
+            const parsedSchedule = JSON.parse(savedSchedule);
+            setShiftSchedule(parsedSchedule);
+            return;
+          }
+        } catch (error) {
+          console.log('⚠️ Error loading from localStorage:', error);
+        }
+        
+        // Fall back to default schedule
+        console.log('🔧 Using default shift schedule');
+        const defaultSchedule = [
+          { dayOfWeek: 'Monday', startTime: '09:00', endTime: '17:00', isActive: true },
+          { dayOfWeek: 'Tuesday', startTime: '09:00', endTime: '17:00', isActive: true },
+          { dayOfWeek: 'Wednesday', startTime: '09:00', endTime: '17:00', isActive: true },
+          { dayOfWeek: 'Thursday', startTime: '09:00', endTime: '17:00', isActive: true },
+          { dayOfWeek: 'Friday', startTime: '09:00', endTime: '17:00', isActive: true },
+          { dayOfWeek: 'Saturday', startTime: '09:00', endTime: '17:00', isActive: false },
+          { dayOfWeek: 'Sunday', startTime: '09:00', endTime: '17:00', isActive: false }
+        ];
+        setShiftSchedule(defaultSchedule);
+      };
+      
+      loadShiftScheduleFromStorage();
     } catch (error: any) {
       console.error('Error loading doctor dashboard data:', error);
       setError(error.response?.data?.error || error.message || 'Failed to load dashboard data');
@@ -313,11 +398,37 @@ const DoctorDashboardWrapper: React.FC<{
     try {
       setIsProcessing(true);
       setError('');
-      // For now, just store locally (backend not implemented yet)
-      console.log('Shift schedule update requested:', shiftData);
+      
+      const currentStaffId = staffId || user.staffId;
+      if (!currentStaffId) {
+        throw new Error('No staff ID available');
+      }
+      
+      console.log('Updating shift schedule for staff ID:', currentStaffId);
+      console.log('Shift data:', shiftData);
+      
+      // Try to call the API, but don't fail if it doesn't exist yet
+      try {
+        await doctorAPI.updateShiftSchedule(currentStaffId, shiftData);
+        console.log('✅ Shift schedule updated successfully via API');
+      } catch (apiError) {
+        console.log('⚠️ API update failed, storing locally:', apiError);
+        // If API fails, just store locally for now
+      }
+      
+      // Always update local state regardless of API success/failure
       setShiftSchedule(shiftData);
-      // Simulate success
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Save to localStorage for persistence across page reloads
+      try {
+        const storageKey = `shiftSchedule_${currentStaffId}`;
+        localStorage.setItem(storageKey, JSON.stringify(shiftData));
+        console.log('✅ Shift schedule saved to localStorage');
+      } catch (storageError) {
+        console.log('⚠️ Error saving to localStorage:', storageError);
+      }
+      
+      console.log('✅ Shift schedule updated locally');
     } catch (error: any) {
       console.error('Error updating shift schedule:', error);
       setError(error.response?.data?.error || error.message || 'Failed to update shift schedule');
@@ -338,17 +449,21 @@ const DoctorDashboardWrapper: React.FC<{
   };
 
   React.useEffect(() => {
-    // Add a small delay to ensure user is fully logged in before making API calls
-    const timer = setTimeout(() => {
-      loadDashboardData();
-    }, 100);
-    
-    return () => clearTimeout(timer);
+    loadDashboardData();
   }, [user.id]);
 
   // Call children as a function with props
+  const userWithStaffId = {
+    ...user,
+    staffId: staffId // Ensure staffId is included
+  };
+  
+  console.log('🔍 DoctorDashboardWrapper returning user:', userWithStaffId);
+  console.log('🔍 DoctorDashboardWrapper staffId:', staffId);
+  console.log('🔍 DoctorDashboardWrapper user.staffId:', user.staffId);
+  
   return children({
-    user,
+    user: userWithStaffId,
     appointments,
     patients,
     shiftSchedule,
@@ -418,32 +533,16 @@ const NurseDashboardWrapper: React.FC<{
     loadDashboardData();
   }, []);
 
-  // Helper function to calculate end time for walk-in appointments
-  const calculateWalkInEndTime = (startTime: string, serviceId: string): string => {
-    const selectedService = services.find(service => service.id === serviceId);
-    const durationMinutes = selectedService?.durationMinutes || 30; // Default to 30 minutes
-    
-    const [hours, minutes] = startTime.split(':').map(Number);
-    const startDate = new Date();
-    startDate.setHours(hours, minutes, 0, 0);
-    const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
-    return endDate.toTimeString().slice(0, 5);
-  };
-
   const handleBookWalkInAppointment = async (appointmentData: any) => {
     try {
       setIsProcessing(true);
       setError('');
       
-      const currentTime = new Date().toTimeString().slice(0, 5);
-      const endTime = calculateWalkInEndTime(currentTime, appointmentData.serviceId);
-      
       // Create a walk-in appointment with immediate scheduling
       const walkInAppointment = {
         ...appointmentData,
         appointmentDate: new Date().toISOString().split('T')[0], // Today
-        startTime: currentTime, // Current time
-        endTime: endTime, // Calculated end time
+        startTime: new Date().toTimeString().slice(0, 5), // Current time
         status: 'walkin',
         notes: `Walk-in appointment: ${appointmentData.notes || 'No additional notes'}`
       };
@@ -532,21 +631,56 @@ const AdminDashboardWrapper: React.FC<{
       setIsLoading(true);
       setError('');
 
+      // Combine staff and patients into a single users array
+      const allUsers: any[] = [];
+
       // Get all staff members
       try {
         const staffData = await staffAPI.getAll();
-        console.log('Staff data received:', staffData);
-        setUsers(staffData);
+        console.log('📊 Staff data received:', staffData);
+        allUsers.push(...staffData);
       } catch (staffError) {
-        console.log('No staff endpoint available, falling back to users');
-        const usersData = await adminAPI.getUsers();
-        console.log('Users data received:', usersData);
-        setUsers(usersData);
+        console.log('No staff endpoint available, falling back to admin users');
+        try {
+          const usersData = await adminAPI.getUsers();
+          console.log('📊 Admin users data received:', usersData);
+          allUsers.push(...usersData);
+        } catch (adminError) {
+          console.error('Failed to load staff/users:', adminError);
+        }
       }
 
-      // Get all appointments (we'll need to implement this endpoint)
+      // Get all patients
       try {
-        // For now, we'll use the existing appointments API
+        const patientsData = await patientsAPI.getAll();
+        console.log('👥 Patients data received:', patientsData);
+        
+        // Normalize patient data to match staff structure
+        const normalizedPatients = patientsData.map((patient: any) => ({
+          ...patient,
+          role: 'patient',
+          isActive: true,
+          // Ensure consistent field names
+          firstName: patient.firstName || patient.first_name,
+          lastName: patient.lastName || patient.last_name,
+          email: patient.email,
+          phone: patient.phone,
+          id: patient.id,
+          userId: patient.userId || patient.id
+        }));
+        
+        console.log('👥 Normalized patients:', normalizedPatients);
+        allUsers.push(...normalizedPatients);
+      } catch (patientsError) {
+        console.error('❌ Failed to load patients:', patientsError);
+        console.log('No patients endpoint available or no patients in database');
+      }
+
+      console.log('✅ Combined users data:', allUsers);
+      setUsers(allUsers);
+
+      // Get all appointments
+      try {
         const appointmentsData = await appointmentsAPI.getAll();
         setAppointments(appointmentsData);
       } catch (appointmentsError) {
@@ -834,7 +968,7 @@ const AppRoutes: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Router>
         <div className="App">
           <AppRoutes />
         </div>
