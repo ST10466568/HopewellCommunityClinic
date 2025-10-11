@@ -744,7 +744,7 @@ export const doctorAPI = {
 
   getShiftSchedule: async (doctorId) => {
     try {
-      const response = await adminApi.get(`/Doctor/${doctorId}/shifts`);
+      const response = await api.get(`/Doctor/${doctorId}/shifts`);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -753,7 +753,7 @@ export const doctorAPI = {
 
   updateShiftSchedule: async (doctorId, shiftData) => {
     try {
-      const response = await adminApi.put(`/Doctor/${doctorId}/shifts`, shiftData);
+      const response = await api.put(`/Doctor/${doctorId}/shifts`, shiftData);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -856,7 +856,7 @@ export const adminAPI = {
   // Admin-specific doctor schedule management
   getDoctorShiftSchedule: async (doctorId) => {
     try {
-      const response = await api.get(`/Admin/doctors/${doctorId}/shifts`);
+      const response = await api.get(`/Admin/doctors/${doctorId}/schedule`);
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
@@ -865,7 +865,7 @@ export const adminAPI = {
 
   updateDoctorShiftSchedule: async (doctorId, shiftData) => {
     try {
-      const response = await api.put(`/Admin/doctors/${doctorId}/shifts`, shiftData);
+      const response = await api.put(`/Admin/doctors/${doctorId}/schedule`, { request: shiftData });
       return response.data;
     } catch (error) {
       throw error.response?.data || error.message;
