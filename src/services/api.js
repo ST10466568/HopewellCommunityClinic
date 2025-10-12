@@ -78,10 +78,20 @@ const MOCK_MODE = false; // Set to false when backend is running
 export const authAPI = {
   register: async (userData) => {
     if (MOCK_MODE) {
-      // Mock successful registration
+      // Mock successful registration with automatic login
       return new Promise((resolve) => {
         setTimeout(() => {
-          resolve({ message: "User registered successfully." });
+          resolve({
+            message: "User registered successfully.",
+            token: "mock-jwt-token-" + Date.now(),
+            user: {
+              id: "mock-user-id-" + Date.now(),
+              email: userData.email,
+              firstName: userData.firstName,
+              lastName: userData.lastName,
+              roles: ["patient"] // Automatically assign patient role
+            }
+          });
         }, 1000);
       });
     }

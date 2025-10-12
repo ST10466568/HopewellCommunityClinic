@@ -8,7 +8,7 @@ import { Badge } from './ui/badge';
 
 interface AuthPageProps {
   onLogin: (email: string, password: string) => Promise<void>;
-  onRegister: (userData: any) => Promise<void>;
+  onRegister: (userData: any) => Promise<{ success: boolean; error?: string; message?: string }>;
   isLoading: boolean;
   error: string | null;
   clearError: () => void;
@@ -86,7 +86,22 @@ const AuthPage: React.FC<AuthPageProps> = ({
       if (isLoginMode) {
         await onLogin(formData.email, formData.password);
       } else {
-        await onRegister(formData);
+        const result = await onRegister(formData);
+        // If registration was successful and user is now logged in, 
+        // the router will automatically redirect them to the appropriate dashboard
+        if (result?.success) {
+          // Clear form data
+          setFormData({
+            email: '',
+            password: '',
+            confirmPassword: '',
+            firstName: '',
+            lastName: '',
+            phone: '',
+            dateOfBirth: '',
+            address: ''
+          });
+        }
       }
     } catch (err) {
       // Error handling is done in parent component

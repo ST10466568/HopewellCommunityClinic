@@ -168,6 +168,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     role: 'doctor',
     phone: ''
   });
+
+  // Pagination and search state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedRole, setSelectedRole] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
   const [newPatientData, setNewPatientData] = useState({
     email: '',
     password: '',
@@ -486,6 +492,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     new Date(apt.appointmentDate).toDateString() === new Date().toDateString()
   );
 
+  // Filter and pagination logic for user management
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = searchTerm === '' || 
+      user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesRole = selectedRole === 'all' || user.role === selectedRole;
+    
+    return matchesSearch && matchesRole;
+  });
+
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedUsers = filteredUsers.slice(startIndex, endIndex);
+
+  // Reset to first page when search or filter changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedRole]);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+  };
+
+  const handleRoleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedRole(e.target.value);
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -699,157 +739,209 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {users.length === 0 ? (
+                {/* Search and Filter Controls */}
+                <div className="mb-6 space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="flex-1">
+                      <Label htmlFor="search-users">Search Users</Label>
+                      <Input
+                        id="search-users"
+                        type="text"
+                        placeholder="Search by name or email..."
+                        value={searchTerm}
+                        onChange={handleSearchChange}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="sm:w-48">
+                      <Label htmlFor="filter-role">Filter by Role</Label>
+                      <select
+                        id="filter-role"
+                        value={selectedRole}
+                        onChange={handleRoleFilterChange}
+                        className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      >
+                        <option value="all">All Roles</option>
+                        <option value="admin">Admin</option>
+                        <option value="doctor">Doctor</option>
+                        <option value="nurse">Nurse</option>
+                        <option value="patient">Patient</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  {/* Results Summary */}
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <span>
+                      Showing {startIndex + 1}-{Math.min(endIndex, filteredUsers.length)} of {filteredUsers.length} users
+                      {searchTerm && ` matching "${searchTerm}"`}
+                      {selectedRole !== 'all' && ` with role "${selectedRole}"`}
+                    </span>
+                    <span>
+                      Page {currentPage} of {totalPages}
+                    </span>
+                  </div>
+                </div>
+
+                {filteredUsers.length === 0 ? (
                   <div className="text-center py-8">
                     <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">No users found</p>
+                    <p className="text-muted-foreground">
+                      {searchTerm || selectedRole !== 'all' 
+                        ? 'No users found matching your criteria' 
+                        : 'No users found'
+                      }
+                    </p>
+                    {(searchTerm || selectedRole !== 'all') && (
+                      <Button 
+                        variant="outline" 
+                        className="mt-4"
+                        onClick={() => {
+                          setSearchTerm('');
+                          setSelectedRole('all');
+                        }}
+                      >
+                        Clear Filters
+                      </Button>
+                    )}
                   </div>
                 ) : (
-                  <div className="space-y-6">
-                    {/* Staff Members Section */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center">
-                        <Shield className="h-5 w-5 mr-2 text-blue-600" />
-                        Staff Members ({users.filter(u => ['admin', 'doctor', 'nurse'].includes(u.role)).length})
-                      </h3>
-                      <div className="space-y-3">
-                        {users.filter(u => ['admin', 'doctor', 'nurse'].includes(u.role)).map((user) => (
-                          <div key={user.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <h4 className="font-medium text-foreground">
-                                  {user.firstName} {user.lastName}
-                                </h4>
-                                <p className="text-sm text-muted-foreground">{user.email}</p>
-                                <div className="flex items-center space-x-4 mt-2">
-                                  <Badge variant={user.role === 'admin' ? 'destructive' : user.role === 'doctor' ? 'default' : 'secondary'}>
-                                    {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                                  </Badge>
-                                  <span className="text-sm text-muted-foreground">
-                                    Created: {new Date(user.createdAt).toLocaleDateString()}
-                                  </span>
-                                  <Badge variant={user.isActive ? 'default' : 'secondary'}>
-                                    {user.isActive ? 'Active' : 'Inactive'}
-                                  </Badge>
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => onToggleUserStatus(user.id, !user.isActive)}
-                                  disabled={isProcessing}
-                                >
-                                  {user.isActive ? (
-                                    <>
-                                      <XCircle className="h-4 w-4 mr-1" />
-                                      Deactivate
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle className="h-4 w-4 mr-1" />
-                                      Activate
-                                    </>
-                                  )}
-                                </Button>
-                                {user.role !== 'admin' && (
-                                  <select
-                                    value={user.role}
-                                    onChange={(e) => onUpdateUserRole(user.id, e.target.value)}
-                                    className="px-2 py-1 text-sm border rounded"
-                                    disabled={isProcessing}
-                                  >
-                                    <option value="doctor">Doctor</option>
-                                    <option value="nurse">Nurse</option>
-                                  </select>
-                                )}
-                              </div>
+                  <div className="space-y-4">
+                    {/* User List */}
+                    {paginatedUsers.map((user) => (
+                      <div key={user.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-foreground">
+                              {user.firstName} {user.lastName}
+                            </h4>
+                            <p className="text-sm text-muted-foreground">{user.email}</p>
+                            <div className="flex items-center space-x-4 mt-2">
+                              <Badge 
+                                variant={
+                                  user.role === 'admin' ? 'destructive' : 
+                                  user.role === 'doctor' ? 'default' : 
+                                  user.role === 'nurse' ? 'secondary' : 
+                                  'outline'
+                                }
+                                className={
+                                  user.role === 'patient' ? 'text-green-600 border-green-600' : ''
+                                }
+                              >
+                                {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground">
+                                Created: {new Date(user.createdAt).toLocaleDateString()}
+                              </span>
+                              <Badge variant={user.isActive ? 'default' : 'secondary'}>
+                                {user.isActive ? 'Active' : 'Inactive'}
+                              </Badge>
+                              {user.phone && (
+                                <span className="text-sm text-muted-foreground">
+                                  Phone: {user.phone}
+                                </span>
+                              )}
                             </div>
+                            {user.dateOfBirth && (
+                              <p className="text-sm text-muted-foreground mt-1">
+                                DOB: {new Date(user.dateOfBirth).toLocaleDateString()}
+                              </p>
+                            )}
+                            {user.address && (
+                              <p className="text-sm text-muted-foreground mt-1">
+                                Address: {user.address}
+                              </p>
+                            )}
                           </div>
-                        ))}
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onToggleUserStatus(user.id, !user.isActive)}
+                              disabled={isProcessing}
+                            >
+                              {user.isActive ? (
+                                <>
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Deactivate
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Activate
+                                </>
+                              )}
+                            </Button>
+                            {user.role !== 'admin' && (
+                              <select
+                                value={user.role}
+                                onChange={(e) => onUpdateUserRole(user.id, e.target.value)}
+                                className="px-2 py-1 text-sm border rounded"
+                                disabled={isProcessing}
+                              >
+                                <option value="patient">Patient</option>
+                                <option value="doctor">Doctor</option>
+                                <option value="nurse">Nurse</option>
+                              </select>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ))}
 
-                    {/* Patients Section */}
-                    <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center">
-                        <User className="h-5 w-5 mr-2 text-green-600" />
-                        Patients ({users.filter(u => u.role === 'patient').length})
-                      </h3>
-                      <div className="space-y-3">
-                        {users.filter(u => u.role === 'patient').map((user) => (
-                          <div key={user.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <h4 className="font-medium text-foreground">
-                                  {user.firstName} {user.lastName}
-                                </h4>
-                                <p className="text-sm text-muted-foreground">{user.email}</p>
-                                <div className="flex items-center space-x-4 mt-2">
-                                  <Badge variant="outline" className="text-green-600 border-green-600">
-                                    Patient
-                                  </Badge>
-                                  <span className="text-sm text-muted-foreground">
-                                    Created: {new Date(user.createdAt).toLocaleDateString()}
-                                  </span>
-                                  <Badge variant={user.isActive ? 'default' : 'secondary'}>
-                                    {user.isActive ? 'Active' : 'Inactive'}
-                                  </Badge>
-                                  {user.phone && (
-                                    <span className="text-sm text-muted-foreground">
-                                      Phone: {user.phone}
-                                    </span>
-                                  )}
-                                </div>
-                                {user.dateOfBirth && (
-                                  <p className="text-sm text-muted-foreground mt-1">
-                                    DOB: {new Date(user.dateOfBirth).toLocaleDateString()}
-                                  </p>
-                                )}
-                                {user.address && (
-                                  <p className="text-sm text-muted-foreground mt-1">
-                                    Address: {user.address}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => onToggleUserStatus(user.id, !user.isActive)}
-                                  disabled={isProcessing}
-                                >
-                                  {user.isActive ? (
-                                    <>
-                                      <XCircle className="h-4 w-4 mr-1" />
-                                      Deactivate
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle className="h-4 w-4 mr-1" />
-                                      Activate
-                                    </>
-                                  )}
-                                </Button>
-                                <select
-                                  value="patient"
-                                  onChange={(e) => onUpdateUserRole(user.id, e.target.value)}
-                                  className="px-2 py-1 text-sm border rounded"
-                                  disabled={isProcessing}
-                                >
-                                  <option value="patient">Keep as Patient</option>
-                                  <option value="doctor">Make Doctor</option>
-                                  <option value="nurse">Make Nurse</option>
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-center space-x-2 mt-6">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          disabled={currentPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        
+                        {/* Page Numbers */}
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                          // Show first page, last page, current page, and pages around current page
+                          if (
+                            page === 1 ||
+                            page === totalPages ||
+                            (page >= currentPage - 1 && page <= currentPage + 1)
+                          ) {
+                            return (
+                              <Button
+                                key={page}
+                                variant={page === currentPage ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => handlePageChange(page)}
+                                className="w-10"
+                              >
+                                {page}
+                              </Button>
+                            );
+                          } else if (
+                            page === currentPage - 2 ||
+                            page === currentPage + 2
+                          ) {
+                            return <span key={page} className="text-muted-foreground">...</span>;
+                          }
+                          return null;
+                        })}
+                        
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          disabled={currentPage === totalPages}
+                        >
+                          Next
+                        </Button>
                       </div>
-                    </div>
+                    )}
 
                     {/* Summary Stats */}
-                    <div className="grid grid-cols-3 gap-4 mt-6">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
                       <Card>
                         <CardContent className="pt-6">
                           <div className="flex items-center space-x-2">
@@ -879,6 +971,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div>
                               <p className="text-sm font-medium">Total Users</p>
                               <p className="text-2xl font-bold">{users.length}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center space-x-2">
+                            <CheckCircle className="h-4 w-4 text-green-600" />
+                            <div>
+                              <p className="text-sm font-medium">Active Users</p>
+                              <p className="text-2xl font-bold">{users.filter(u => u.isActive).length}</p>
                             </div>
                           </div>
                         </CardContent>

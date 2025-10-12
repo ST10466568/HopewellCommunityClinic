@@ -169,12 +169,27 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.register(userData);
       
-      dispatch({
-        type: AUTH_ACTIONS.REGISTER_SUCCESS,
-        payload: response,
-      });
+      // If registration is successful, automatically log the user in
+      if (response.token && response.user) {
+        // Store in localStorage
+        localStorage.setItem('token', response.token);
+        localStorage.setItem('user', JSON.stringify(response.user));
 
-      return { success: true, message: response.message };
+        dispatch({
+          type: AUTH_ACTIONS.REGISTER_SUCCESS,
+          payload: { user: response.user, token: response.token },
+        });
+
+        return { success: true, message: response.message || 'Registration successful! You are now logged in.' };
+      } else {
+        // If no token/user returned, just show success message
+        dispatch({
+          type: AUTH_ACTIONS.REGISTER_SUCCESS,
+          payload: response,
+        });
+
+        return { success: true, message: response.message || 'Registration successful! Please login.' };
+      }
     } catch (error) {
       const errorMessage = error.error || error.message || 'Registration failed';
       dispatch({
