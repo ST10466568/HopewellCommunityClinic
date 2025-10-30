@@ -23,6 +23,7 @@ interface Appointment {
   notes?: string;
   staffId?: string;
   doctorId?: string;
+  createdAt?: string; // Add createdAt field for sorting
   staff?: {
     id?: string;
     staffId?: string;
@@ -311,7 +312,19 @@ const DailySchedule: React.FC<DailyScheduleProps> = ({
                 </div>
                 
                 {appointments
-                  .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                  .sort((a, b) => {
+                    // First sort by createdAt date (newest first), then by startTime
+                    const dateA = new Date(a.createdAt || a.appointmentDate);
+                    const dateB = new Date(b.createdAt || b.appointmentDate);
+                    const dateComparison = dateB.getTime() - dateA.getTime();
+                    
+                    // If dates are the same, sort by startTime
+                    if (dateComparison === 0) {
+                      return a.startTime.localeCompare(b.startTime);
+                    }
+                    
+                    return dateComparison;
+                  })
                   .map((appointment) => (
                     <Card key={appointment.id} className="border-l-4 border-l-primary">
                       <CardContent className="p-4">

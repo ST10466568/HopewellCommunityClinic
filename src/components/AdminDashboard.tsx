@@ -7,6 +7,8 @@ import { Label } from './ui/label';
 import { appointmentsAPI, doctorAPI, staffAPI, adminAPI } from '../services/api';
 import BookingWizard from './BookingWizard';
 import AppointmentManagement from './AppointmentManagement';
+import NotificationManagement from './NotificationManagement';
+import Logo from './Logo';
 import { 
   Calendar, 
   Clock, 
@@ -27,8 +29,15 @@ import {
   Shield,
   Activity,
   UserCog,
-  CalendarDays
+  CalendarDays,
+  Bell,
+  Download,
+  UserCircle
 } from 'lucide-react';
+import { exportToCSV, exportToJSON, exportToPDF, prepareExportData } from '../utils/reportExport';
+import { authAPI, notificationsAPI } from '../services/api';
+import ProfileModal from './ProfileModal';
+import NotificationCenter from './NotificationCenter';
 
 interface User {
   id: string;
@@ -114,6 +123,7 @@ interface AdminDashboardProps {
   error: string;
   onToggleUserStatus: (userId: string, isActive: boolean) => Promise<void>;
   onUpdateUserRole: (userId: string, newRole: string) => Promise<void>;
+  onUpdateUser: (userId: string, userData: any) => Promise<void>;
   onCreateStaff: (staffData: any) => Promise<void>;
   onCreateService: (serviceData: any) => Promise<void>;
   onUpdateService: (serviceId: string, serviceData: any) => Promise<void>;
@@ -134,6 +144,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   error,
   onToggleUserStatus,
   onUpdateUserRole,
+  onUpdateUser,
   onCreateStaff,
   onCreateService,
   onUpdateService,
@@ -146,6 +157,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [activeTab, setActiveTab] = useState('overview');
   const [showCreateStaffModal, setShowCreateStaffModal] = useState(false);
   const [showCreatePatientModal, setShowCreatePatientModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [showWalkInModal, setShowWalkInModal] = useState(false);
   const [showBookingWizard, setShowBookingWizard] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
@@ -166,7 +179,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     firstName: '',
     lastName: '',
     role: 'doctor',
-    phone: ''
+    phone: '',
+    dateOfBirth: '',
+    address: '',
+    emergencyContact: '',
+    emergencyPhone: ''
   });
 
   // Pagination and search state
@@ -185,15 +202,82 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     emergencyContact: '',
     emergencyPhone: ''
   });
+  const [editUserData, setEditUserData] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    dateOfBirth: '',
+    address: '',
+    emergencyContact: '',
+    emergencyPhone: '',
+    role: ''
+  });
   const [serviceData, setServiceData] = useState({
     name: '',
     description: '',
     durationMinutes: 30,
     price: 0
   });
+  const [reportDateRange, setReportDateRange] = useState<{
+    startDate: string;
+    endDate: string;
+  } | undefined>(undefined);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState(user);
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
+  // Load notifications and calculate unread count
+  useEffect(() => {
+    const loadNotifications = async () => {
+      try {
+        const data = await notificationsAPI.getAllNotifications();
+        const notificationsArray = Array.isArray(data) ? data : [];
+        setNotifications(notificationsArray);
+        const unread = notificationsArray.filter((n: any) => !n.isRead).length;
+        setUnreadNotificationCount(unread);
+      } catch (error) {
+        console.error('Error loading notifications:', error);
+        setNotifications([]);
+        setUnreadNotificationCount(0);
+      }
+    };
+
+    loadNotifications();
+    // Refresh notifications every 30 seconds
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleUpdateProfile = async (userId: string, profileData: any) => {
+    try {
+      await authAPI.updateProfile(userId, profileData);
+      setCurrentUser((prev: any) => ({
+        ...prev,
+        ...profileData,
+        address: profileData.address || prev.address,
+        emergencyContact: profileData.emergencyContact || prev.emergencyContact
+      }));
+    } catch (error: any) {
+      throw error;
+    }
+  };
 
   // Days of the week for shift schedule
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  // Helper function to sort schedule by day order
+  const sortScheduleByDay = (scheduleArray: ShiftSchedule[]) => {
+    return scheduleArray.sort((a, b) => {
+      return daysOfWeek.indexOf(a.dayOfWeek) - daysOfWeek.indexOf(b.dayOfWeek);
+    });
+  };
 
   // Load all doctors for admin to manage
   const loadDoctors = async () => {
@@ -223,8 +307,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const schedule = await adminAPI.getDoctorShiftSchedule(doctorId);
         // Ensure schedule is an array
         const scheduleArray = Array.isArray(schedule) ? schedule : [];
-        setDoctorShiftSchedule(scheduleArray);
-        setNewShiftSchedule(scheduleArray);
+        setDoctorShiftSchedule(sortScheduleByDay(scheduleArray));
+        setNewShiftSchedule(sortScheduleByDay(scheduleArray));
         console.log('✅ Loaded shift schedule via admin endpoint:', scheduleArray);
         return;
       } catch (adminError) {
@@ -235,8 +319,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const schedule = await doctorAPI.getShiftSchedule(doctorId);
           // Ensure schedule is an array
           const scheduleArray = Array.isArray(schedule) ? schedule : [];
-          setDoctorShiftSchedule(scheduleArray);
-          setNewShiftSchedule(scheduleArray);
+          setDoctorShiftSchedule(sortScheduleByDay(scheduleArray));
+          setNewShiftSchedule(sortScheduleByDay(scheduleArray));
           console.log('✅ Loaded shift schedule via doctor endpoint:', scheduleArray);
           return;
         } catch (doctorError) {
@@ -247,8 +331,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const publicSchedule = await doctorAPI.getShiftSchedulePublic(doctorId);
             // Ensure schedule is an array
             const scheduleArray = Array.isArray(publicSchedule) ? publicSchedule : [];
-            setDoctorShiftSchedule(scheduleArray);
-            setNewShiftSchedule(scheduleArray);
+            setDoctorShiftSchedule(sortScheduleByDay(scheduleArray));
+            setNewShiftSchedule(sortScheduleByDay(scheduleArray));
             console.log('✅ Loaded schedule from public endpoint:', scheduleArray);
             return;
           } catch (publicError) {
@@ -267,8 +351,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         endTime: '17:00',
         isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
       }));
-      setDoctorShiftSchedule(defaultSchedule);
-      setNewShiftSchedule(defaultSchedule);
+      setDoctorShiftSchedule(sortScheduleByDay(defaultSchedule));
+      setNewShiftSchedule(sortScheduleByDay(defaultSchedule));
     }
   };
 
@@ -379,6 +463,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   };
 
+  // Helper function to safely format dates
+  const formatDateSafe = (dateString: string | undefined) => {
+    if (!dateString) {
+      console.warn('formatDateSafe: No dateString provided');
+      return 'Unknown';
+    }
+    
+    try {
+      const date = new Date(dateString);
+      // Check if the date is valid
+      if (isNaN(date.getTime())) {
+        console.warn('formatDateSafe: Invalid date string:', dateString);
+        return 'Invalid Date';
+      }
+      return date.toLocaleDateString();
+    } catch (error) {
+      console.warn('formatDateSafe: Error parsing date:', dateString, error);
+      return 'Invalid Date';
+    }
+  };
+
   // Load doctors when component mounts or when schedule tab is active
   useEffect(() => {
     if (activeTab === 'schedule') {
@@ -435,7 +540,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       firstName: '',
       lastName: '',
       role: 'doctor',
-      phone: ''
+      phone: '',
+      dateOfBirth: '',
+      address: '',
+      emergencyContact: '',
+      emergencyPhone: ''
     });
   };
 
@@ -447,6 +556,94 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handlePatientInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setNewPatientData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleEditUserInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setEditUserData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Helper function to format date for HTML date input (YYYY-MM-DD)
+  const formatDateForInput = (dateValue: string | null | undefined): string => {
+    if (!dateValue) return '';
+    
+    // If already in YYYY-MM-DD format, return as is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+      return dateValue;
+    }
+    
+    // Try to parse and format the date
+    try {
+      const date = new Date(dateValue);
+      if (!isNaN(date.getTime())) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    } catch (error) {
+      console.warn('Error formatting date:', dateValue, error);
+    }
+    
+    return '';
+  };
+
+  const handleEditUser = (user: AdminUser) => {
+    console.log('🔍 Editing user:', user);
+    setEditingUser(user);
+    
+    // Format date for HTML date input (YYYY-MM-DD)
+    const formattedDateOfBirth = formatDateForInput(user.dateOfBirth);
+    
+    setEditUserData({
+      email: user.email || '',
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      phone: user.phone || '',
+      dateOfBirth: formattedDateOfBirth,
+      address: user.address || '',
+      emergencyContact: user.emergencyContact || '',
+      emergencyPhone: user.emergencyPhone || '',
+      role: user.role || ''
+    });
+    
+    console.log('🔍 Set editUserData:', {
+      email: user.email || '',
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      phone: user.phone || '',
+      dateOfBirth: formattedDateOfBirth,
+      address: user.address || '',
+      emergencyContact: user.emergencyContact || '',
+      emergencyPhone: user.emergencyPhone || '',
+      role: user.role || ''
+    });
+    
+    setShowEditUserModal(true);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    
+    try {
+      await onUpdateUser(editingUser.id, editUserData);
+      setShowEditUserModal(false);
+      setEditingUser(null);
+      setEditUserData({
+        email: '',
+        firstName: '',
+        lastName: '',
+        phone: '',
+        dateOfBirth: '',
+        address: '',
+        emergencyContact: '',
+        emergencyPhone: '',
+        role: ''
+      });
+    } catch (error) {
+      console.error('Error updating user:', error);
+    }
   };
 
   const handleCreatePatient = async (e: React.FormEvent) => {
@@ -543,19 +740,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <header className="bg-card border-b border-border">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-                <span className="text-primary-foreground text-xl">💚</span>
-              </div>
-              <div>
+            <div className="flex items-center space-x-2">
+              <Logo size="lg" variant="icon-only" />
+              <div className="flex flex-col justify-center">
                 <h1 className="text-2xl font-bold text-foreground">Hopewell Community Clinic</h1>
                 <p className="text-sm text-muted-foreground">Admin Dashboard</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="font-medium text-foreground">{user.firstName} {user.lastName}</p>
-                <p className="text-sm text-muted-foreground">{user.email}</p>
+              <div className="text-right flex items-center space-x-2">
+                <div>
+                  <p className="font-medium text-foreground">{currentUser.firstName} {currentUser.lastName}</p>
+                  <p className="text-sm text-muted-foreground">{currentUser.email}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowNotificationCenter(true)}
+                  className="h-8 w-8 p-0 relative"
+                  title="Notifications"
+                >
+                  <Bell className="h-5 w-5 text-primary" />
+                  {unreadNotificationCount > 0 && (
+                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowProfileModal(true)}
+                  className="h-8 w-8 p-0"
+                  title="Edit Profile"
+                >
+                  <UserCircle className="h-5 w-5 text-primary" />
+                </Button>
               </div>
               <Button variant="outline" onClick={onLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
@@ -575,6 +795,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             { id: 'appointments', label: 'Appointments', icon: Calendar },
             { id: 'services', label: 'Service Management', icon: Settings },
             { id: 'schedule', label: 'Doctor Schedules', icon: CalendarDays },
+            { id: 'notifications', label: 'Notifications', icon: Bell },
             { id: 'reports', label: 'Reports', icon: BarChart3 },
             { id: 'staff', label: 'Staff Management', icon: UserPlus }
           ].map(({ id, label, icon: Icon }) => (
@@ -831,7 +1052,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                               </Badge>
                               <span className="text-sm text-muted-foreground">
-                                Created: {new Date(user.createdAt).toLocaleDateString()}
+                                Created: {formatDateSafe(user.createdAt)}
                               </span>
                               <Badge variant={user.isActive ? 'default' : 'secondary'}>
                                 {user.isActive ? 'Active' : 'Inactive'}
@@ -844,7 +1065,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </div>
                             {user.dateOfBirth && (
                               <p className="text-sm text-muted-foreground mt-1">
-                                DOB: {new Date(user.dateOfBirth).toLocaleDateString()}
+                                DOB: {formatDateSafe(user.dateOfBirth)}
                               </p>
                             )}
                             {user.address && (
@@ -854,6 +1075,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             )}
                           </div>
                           <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditUser(user)}
+                              disabled={isProcessing}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              Edit
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
@@ -1047,13 +1277,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </h4>
                           <p className="text-sm text-muted-foreground">{doctor.email}</p>
                           <p className="text-sm text-muted-foreground">
-                            Role: {doctor.role} • Created: {new Date(doctor.createdAt).toLocaleDateString()}
+                            Role: {doctor.role} • Created: {formatDateSafe(doctor.createdAt)}
                           </p>
                         </div>
                         <div className="flex items-center space-x-2">
                           <Badge variant={doctor.isActive ? "default" : "secondary"}>
                             {doctor.isActive ? "Active" : "Inactive"}
                           </Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleEditUser(doctor)}
+                            disabled={isProcessing}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            Edit
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -1241,20 +1480,112 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
+        {/* Notifications Tab */}
+        {activeTab === 'notifications' && (
+          <NotificationManagement />
+        )}
+
         {/* Reports Tab */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
+            {/* Date Range Filter */}
+            <Card className="medical-card">
+              <CardHeader>
+                <CardTitle>Report Filters</CardTitle>
+                <CardDescription>
+                  Filter reports by date range (optional)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="startDate">Start Date</Label>
+                    <Input
+                      id="startDate"
+                      type="date"
+                      value={reportDateRange?.startDate || ''}
+                      onChange={(e) => setReportDateRange(prev => ({
+                        ...prev,
+                        startDate: e.target.value,
+                        endDate: prev?.endDate || ''
+                      }))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="endDate">End Date</Label>
+                    <Input
+                      id="endDate"
+                      type="date"
+                      value={reportDateRange?.endDate || ''}
+                      onChange={(e) => setReportDateRange(prev => ({
+                        startDate: prev?.startDate || '',
+                        endDate: e.target.value
+                      }))}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setReportDateRange(undefined)}
+                      className="w-full"
+                    >
+                      Clear Filter
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Appointment Statistics */}
               <Card className="medical-card">
                 <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <BarChart3 className="h-5 w-5 text-primary" />
-                    <span>Appointment Statistics</span>
-                  </CardTitle>
-                  <CardDescription>
-                    Overview of appointment trends
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center space-x-2">
+                        <BarChart3 className="h-5 w-5 text-primary" />
+                        <span>Appointment Statistics</span>
+                      </CardTitle>
+                      <CardDescription>
+                        Overview of appointment trends
+                      </CardDescription>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          exportToCSV(exportData, 'appointment-statistics');
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        CSV
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          exportToJSON(exportData, 'appointment-statistics');
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        JSON
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          exportToPDF(exportData, 'appointment-statistics');
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        PDF
+                      </Button>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
@@ -1287,13 +1618,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Service Usage */}
               <Card className="medical-card">
                 <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Settings className="h-5 w-5 text-primary" />
-                    <span>Service Usage</span>
-                  </CardTitle>
-                  <CardDescription>
-                    Most popular services
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center space-x-2">
+                        <Settings className="h-5 w-5 text-primary" />
+                        <span>Service Usage</span>
+                      </CardTitle>
+                      <CardDescription>
+                        Most popular services
+                      </CardDescription>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          exportToCSV(exportData, 'service-usage');
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        CSV
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          exportToJSON(exportData, 'service-usage');
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        JSON
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          exportToPDF(exportData, 'service-usage');
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        PDF
+                      </Button>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
@@ -1314,13 +1684,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {/* Revenue Report */}
             <Card className="medical-card">
               <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <BarChart3 className="h-5 w-5 text-primary" />
-                  <span>Revenue Report</span>
-                </CardTitle>
-                <CardDescription>
-                  Financial overview and trends
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center space-x-2">
+                      <BarChart3 className="h-5 w-5 text-primary" />
+                      <span>Revenue Report</span>
+                    </CardTitle>
+                    <CardDescription>
+                      Financial overview and trends
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const exportData = prepareExportData(appointments, services, reportDateRange);
+                        exportToCSV(exportData, 'revenue-report');
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      CSV
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const exportData = prepareExportData(appointments, services, reportDateRange);
+                        exportToJSON(exportData, 'revenue-report');
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      JSON
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const exportData = prepareExportData(appointments, services, reportDateRange);
+                        exportToPDF(exportData, 'revenue-report');
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      PDF
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -1348,6 +1757,50 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         .toFixed(2)}
                     </span>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Export All Reports */}
+            <Card className="medical-card">
+              <CardHeader>
+                <CardTitle>Export All Reports</CardTitle>
+                <CardDescription>
+                  Download all analytics reports in one file
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2">
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      const exportData = prepareExportData(appointments, services, reportDateRange);
+                      exportToCSV(exportData, 'complete-analytics-report');
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export All as CSV
+                  </Button>
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      const exportData = prepareExportData(appointments, services, reportDateRange);
+                      exportToJSON(exportData, 'complete-analytics-report');
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export All as JSON
+                  </Button>
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      const exportData = prepareExportData(appointments, services, reportDateRange);
+                      exportToPDF(exportData, 'complete-analytics-report');
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export All as PDF
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -1421,7 +1874,47 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     name="phone"
                     value={newStaffData.phone}
                     onChange={handleInputChange}
-                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                  <Input
+                    id="dateOfBirth"
+                    name="dateOfBirth"
+                    type="date"
+                    value={newStaffData.dateOfBirth}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    value={newStaffData.address}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="emergencyContact">Emergency Contact</Label>
+                  <Input
+                    id="emergencyContact"
+                    name="emergencyContact"
+                    value={newStaffData.emergencyContact}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="emergencyPhone">Emergency Phone</Label>
+                  <Input
+                    id="emergencyPhone"
+                    name="emergencyPhone"
+                    value={newStaffData.emergencyPhone}
+                    onChange={handleInputChange}
                   />
                 </div>
 
@@ -1794,7 +2287,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         endTime: '17:00',
                         isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
                       }));
-                      setNewShiftSchedule(weekdaysSchedule);
+                      setNewShiftSchedule(sortScheduleByDay(weekdaysSchedule));
                     }}
                   >
                     Set Weekdays (9-5)
@@ -1809,7 +2302,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         endTime: '17:00',
                         isActive: true
                       }));
-                      setNewShiftSchedule(allDaysSchedule);
+                      setNewShiftSchedule(sortScheduleByDay(allDaysSchedule));
                     }}
                   >
                     Set All Days (9-5)
@@ -1824,7 +2317,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         endTime: '17:00',
                         isActive: false
                       }));
-                      setNewShiftSchedule(clearedSchedule);
+                      setNewShiftSchedule(sortScheduleByDay(clearedSchedule));
                     }}
                   >
                     Clear All
@@ -1839,7 +2332,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         endTime: '17:00',
                         isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
                       }));
-                      setNewShiftSchedule(defaultSchedule);
+                      setNewShiftSchedule(sortScheduleByDay(defaultSchedule));
                     }}
                   >
                     Reset to Defaults
@@ -1861,7 +2354,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           onChange={(e) => {
                             const updatedSchedule = [...newShiftSchedule];
                             updatedSchedule[index].startTime = e.target.value;
-                            setNewShiftSchedule(updatedSchedule);
+                            setNewShiftSchedule(sortScheduleByDay(updatedSchedule));
                           }}
                           className="w-32"
                         />
@@ -1872,7 +2365,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           onChange={(e) => {
                             const updatedSchedule = [...newShiftSchedule];
                             updatedSchedule[index].endTime = e.target.value;
-                            setNewShiftSchedule(updatedSchedule);
+                            setNewShiftSchedule(sortScheduleByDay(updatedSchedule));
                           }}
                           className="w-32"
                         />
@@ -1886,7 +2379,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           onChange={(e) => {
                             const updatedSchedule = [...newShiftSchedule];
                             updatedSchedule[index].isActive = e.target.checked;
-                            setNewShiftSchedule(updatedSchedule);
+                            setNewShiftSchedule(sortScheduleByDay(updatedSchedule));
                           }}
                           className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
                         />
@@ -1924,6 +2417,158 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Edit User Modal */}
+      {showEditUserModal && editingUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <CardHeader>
+              <CardTitle>Edit User</CardTitle>
+              <CardDescription>
+                Update user information for {editingUser.firstName} {editingUser.lastName}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleUpdateUser} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="editFirstName">First Name</Label>
+                    <Input
+                      id="editFirstName"
+                      name="firstName"
+                      value={editUserData.firstName}
+                      onChange={handleEditUserInputChange}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="editLastName">Last Name</Label>
+                    <Input
+                      id="editLastName"
+                      name="lastName"
+                      value={editUserData.lastName}
+                      onChange={handleEditUserInputChange}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="editEmail">Email</Label>
+                  <Input
+                    id="editEmail"
+                    name="email"
+                    type="email"
+                    value={editUserData.email}
+                    onChange={handleEditUserInputChange}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="editPhone">Phone</Label>
+                  <Input
+                    id="editPhone"
+                    name="phone"
+                    value={editUserData.phone}
+                    onChange={handleEditUserInputChange}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="editRole">Role</Label>
+                  <select
+                    id="editRole"
+                    name="role"
+                    value={editUserData.role}
+                    onChange={handleEditUserInputChange}
+                    className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    required
+                  >
+                    <option value="patient">Patient</option>
+                    <option value="doctor">Doctor</option>
+                    <option value="nurse">Nurse</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+
+                <div>
+                  <Label htmlFor="editDateOfBirth">Date of Birth</Label>
+                  <Input
+                    id="editDateOfBirth"
+                    name="dateOfBirth"
+                    type="date"
+                    value={editUserData.dateOfBirth}
+                    onChange={handleEditUserInputChange}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="editAddress">Address</Label>
+                  <Input
+                    id="editAddress"
+                    name="address"
+                    value={editUserData.address}
+                    onChange={handleEditUserInputChange}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="editEmergencyContact">Emergency Contact</Label>
+                  <Input
+                    id="editEmergencyContact"
+                    name="emergencyContact"
+                    value={editUserData.emergencyContact}
+                    onChange={handleEditUserInputChange}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="editEmergencyPhone">Emergency Phone</Label>
+                  <Input
+                    id="editEmergencyPhone"
+                    name="emergencyPhone"
+                    value={editUserData.emergencyPhone}
+                    onChange={handleEditUserInputChange}
+                  />
+                </div>
+
+                <div className="flex space-x-3 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowEditUserModal(false);
+                      setEditingUser(null);
+                      setEditUserData({
+                        email: '',
+                        firstName: '',
+                        lastName: '',
+                        phone: '',
+                        dateOfBirth: '',
+                        address: '',
+                        emergencyContact: '',
+                        emergencyPhone: '',
+                        role: ''
+                      });
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1"
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? 'Updating...' : 'Update User'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Booking Wizard for Walk-in Appointments */}
       {showBookingWizard && selectedPatientId && (
         <BookingWizard
@@ -1937,6 +2582,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           patientId={selectedPatientId}
         />
       )}
+      
+      {/* Profile Modal */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        user={currentUser}
+        onUpdateProfile={handleUpdateProfile}
+        role="admin"
+      />
+
+      {/* Notification Center */}
+      <NotificationCenter
+        userId={user.id}
+        userRole="admin"
+        isOpen={showNotificationCenter}
+        onClose={() => {
+          setShowNotificationCenter(false);
+          // Reload notifications to update unread count
+          const loadNotifications = async () => {
+            try {
+              const data = await notificationsAPI.getAllNotifications();
+              const notificationsArray = Array.isArray(data) ? data : [];
+              setNotifications(notificationsArray);
+              const unread = notificationsArray.filter((n: any) => !n.isRead).length;
+              setUnreadNotificationCount(unread);
+            } catch (error) {
+              console.error('Error loading notifications:', error);
+            }
+          };
+          loadNotifications();
+        }}
+      />
     </div>
   );
 };

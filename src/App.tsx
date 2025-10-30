@@ -6,8 +6,10 @@ import AuthPage from './components/AuthPage';
 import PatientDashboard from './components/PatientDashboard';
 import DoctorDashboard from './components/DoctorDashboard';
 import AdminDashboard from './components/AdminDashboard';
+import EmailSettingsPage from './pages/admin/EmailSettings';
 import NurseDashboard from './components/NurseDashboard';
 import LoadingSpinner from './components/LoadingSpinner';
+import { usePushNotifications } from './hooks/usePushNotifications';
 
 // Import the existing API functions
 import { appointmentsAPI, servicesAPI, patientsAPI, staffAPI, doctorAPI, adminAPI } from './services/api';
@@ -70,7 +72,15 @@ const DashboardWrapper: React.FC<{
           servicesAPI.getAll(),
           staffAPI.getByRole('doctor')
         ]);
-        setAppointments(appointmentsData);
+        
+        // Sort appointments by created date (newest first)
+        const sortedAppointments = appointmentsData.sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt || a.appointmentDate);
+          const dateB = new Date(b.createdAt || b.appointmentDate);
+          return dateB.getTime() - dateA.getTime();
+        });
+        
+        setAppointments(sortedAppointments);
         setServices(servicesData);
         setDoctors(doctorsData);
       } catch (patientError) {
@@ -309,7 +319,13 @@ const DoctorDashboardWrapper: React.FC<{
       // Get all appointments
       try {
         const appointmentsData = await appointmentsAPI.getAll();
-        setAppointments(appointmentsData);
+        // Sort appointments by created date (newest first)
+        const sortedAppointments = appointmentsData.sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt || a.appointmentDate);
+          const dateB = new Date(b.createdAt || b.appointmentDate);
+          return dateB.getTime() - dateA.getTime();
+        });
+        setAppointments(sortedAppointments);
       } catch (appointmentsError) {
         console.log('No appointments endpoint available yet');
         setAppointments([]);
@@ -324,24 +340,24 @@ const DoctorDashboardWrapper: React.FC<{
         setPatients([]);
       }
 
-      // Load shift schedule from localStorage or use defaults
-      const loadShiftScheduleFromStorage = () => {
+      // Load shift schedule from API instead of localStorage
+      const loadShiftScheduleFromAPI = async () => {
         try {
           const currentStaffId = staffId || user.staffId;
-          const storageKey = `shiftSchedule_${currentStaffId}`;
-          const savedSchedule = localStorage.getItem(storageKey);
-          
-          if (savedSchedule) {
-            console.log('🔧 Loading saved shift schedule from localStorage');
-            const parsedSchedule = JSON.parse(savedSchedule);
-            setShiftSchedule(parsedSchedule);
-            return;
+          if (currentStaffId) {
+            console.log('🔧 Loading shift schedule from API for staff ID:', currentStaffId);
+            const schedule = await doctorAPI.getShiftSchedule(currentStaffId);
+            if (schedule && schedule.length > 0) {
+              console.log('✅ Loaded shift schedule from API:', schedule);
+              setShiftSchedule(schedule);
+              return;
+            }
           }
         } catch (error) {
-          console.log('⚠️ Error loading from localStorage:', error);
+          console.log('⚠️ Error loading shift schedule from API:', error);
         }
         
-        // Fall back to default schedule
+        // Fall back to default schedule if API fails
         console.log('🔧 Using default shift schedule');
         const defaultSchedule = [
           { dayOfWeek: 'Monday', startTime: '09:00', endTime: '17:00', isActive: true },
@@ -355,7 +371,7 @@ const DoctorDashboardWrapper: React.FC<{
         setShiftSchedule(defaultSchedule);
       };
       
-      loadShiftScheduleFromStorage();
+      await loadShiftScheduleFromAPI();
     } catch (error: any) {
       console.error('Error loading doctor dashboard data:', error);
       setError(error.response?.data?.error || error.message || 'Failed to load dashboard data');
@@ -416,18 +432,8 @@ const DoctorDashboardWrapper: React.FC<{
         // If API fails, just store locally for now
       }
       
-      // Always update local state regardless of API success/failure
+      // Update local state only if API call was successful
       setShiftSchedule(shiftData);
-      
-      // Save to localStorage for persistence across page reloads
-      try {
-        const storageKey = `shiftSchedule_${currentStaffId}`;
-        localStorage.setItem(storageKey, JSON.stringify(shiftData));
-        console.log('✅ Shift schedule saved to localStorage');
-      } catch (storageError) {
-        console.log('⚠️ Error saving to localStorage:', storageError);
-      }
-      
       console.log('✅ Shift schedule updated locally');
     } catch (error: any) {
       console.error('Error updating shift schedule:', error);
@@ -497,7 +503,13 @@ const NurseDashboardWrapper: React.FC<{
       // Load appointments
       try {
         const appointmentsData = await appointmentsAPI.getAll();
-        setAppointments(appointmentsData);
+        // Sort appointments by created date (newest first)
+        const sortedAppointments = appointmentsData.sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt || a.appointmentDate);
+          const dateB = new Date(b.createdAt || b.appointmentDate);
+          return dateB.getTime() - dateA.getTime();
+        });
+        setAppointments(sortedAppointments);
       } catch (appointmentsError) {
         console.log('No appointments endpoint available yet');
         setAppointments([]);
@@ -638,13 +650,55 @@ const AdminDashboardWrapper: React.FC<{
       try {
         const staffData = await staffAPI.getAll();
         console.log('📊 Staff data received:', staffData);
-        allUsers.push(...staffData);
+        
+        // Normalize staff data to ensure createdAt field and consistent ID
+        const normalizedStaff = staffData.map((staff: any) => ({
+          ...staff,
+          // Ensure createdAt field is properly handled
+          createdAt: staff.createdAt || staff.created_at || staff.dateCreated || new Date().toISOString(),
+          // Ensure consistent ID field
+          id: staff.id || staff.userId || staff.staffId,
+          userId: staff.userId || staff.id || staff.staffId,
+          // Preserve all user fields
+          firstName: staff.firstName || staff.first_name || '',
+          lastName: staff.lastName || staff.last_name || '',
+          email: staff.email || '',
+          phone: staff.phone || null,
+          dateOfBirth: staff.dateOfBirth || staff.date_of_birth || null,
+          address: staff.address || null,
+          emergencyContact: staff.emergencyContact || staff.emergency_contact || null,
+          emergencyPhone: staff.emergencyPhone || staff.emergency_phone || null,
+          role: staff.role || ''
+        }));
+        
+        allUsers.push(...normalizedStaff);
       } catch (staffError) {
         console.log('No staff endpoint available, falling back to admin users');
         try {
           const usersData = await adminAPI.getUsers();
           console.log('📊 Admin users data received:', usersData);
-          allUsers.push(...usersData);
+          
+          // Normalize admin users data to ensure createdAt field and consistent ID
+          const normalizedAdminUsers = usersData.map((user: any) => ({
+            ...user,
+            // Ensure createdAt field is properly handled
+            createdAt: user.createdAt || user.created_at || user.dateCreated || new Date().toISOString(),
+            // Ensure consistent ID field
+            id: user.id || user.userId,
+            userId: user.userId || user.id,
+            // Preserve all user fields
+            firstName: user.firstName || user.first_name || '',
+            lastName: user.lastName || user.last_name || '',
+            email: user.email || '',
+            phone: user.phone || null,
+            dateOfBirth: user.dateOfBirth || user.date_of_birth || null,
+            address: user.address || null,
+            emergencyContact: user.emergencyContact || user.emergency_contact || null,
+            emergencyPhone: user.emergencyPhone || user.emergency_phone || null,
+            role: user.role || ''
+          }));
+          
+          allUsers.push(...normalizedAdminUsers);
         } catch (adminError) {
           console.error('Failed to load staff/users:', adminError);
         }
@@ -661,12 +715,19 @@ const AdminDashboardWrapper: React.FC<{
           role: 'patient',
           isActive: true,
           // Ensure consistent field names
-          firstName: patient.firstName || patient.first_name,
-          lastName: patient.lastName || patient.last_name,
-          email: patient.email,
-          phone: patient.phone,
-          id: patient.id,
-          userId: patient.userId || patient.id
+          firstName: patient.firstName || patient.first_name || '',
+          lastName: patient.lastName || patient.last_name || '',
+          email: patient.email || '',
+          phone: patient.phone || null,
+          dateOfBirth: patient.dateOfBirth || patient.date_of_birth || null,
+          address: patient.address || null,
+          emergencyContact: patient.emergencyContact || patient.emergency_contact || null,
+          emergencyPhone: patient.emergencyPhone || patient.emergency_phone || null,
+          // Ensure consistent ID field
+          id: patient.id || patient.userId || patient.patientId,
+          userId: patient.userId || patient.id || patient.patientId,
+          // Ensure createdAt field is properly handled
+          createdAt: patient.createdAt || patient.created_at || patient.dateCreated || new Date().toISOString()
         }));
         
         console.log('👥 Normalized patients:', normalizedPatients);
@@ -682,7 +743,13 @@ const AdminDashboardWrapper: React.FC<{
       // Get all appointments
       try {
         const appointmentsData = await appointmentsAPI.getAll();
-        setAppointments(appointmentsData);
+        // Sort appointments by created date (newest first)
+        const sortedAppointments = appointmentsData.sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt || a.appointmentDate);
+          const dateB = new Date(b.createdAt || b.appointmentDate);
+          return dateB.getTime() - dateA.getTime();
+        });
+        setAppointments(sortedAppointments);
       } catch (appointmentsError) {
         console.log('No appointments endpoint available yet');
         setAppointments([]);
@@ -708,7 +775,19 @@ const AdminDashboardWrapper: React.FC<{
     try {
       setIsProcessing(true);
       setError('');
-      await adminAPI.updateUserStatus(userId, isActive);
+      console.log('Toggling user status:', { userId, isActive });
+      
+      // Find the user in our local data to get the correct ID
+      const user = users.find(u => u.id === userId || u.userId === userId);
+      if (!user) {
+        throw new Error('User not found in local data');
+      }
+      
+      // Use the correct ID field - try multiple possible ID fields
+      const correctUserId = user.id || user.userId || userId;
+      console.log('Using user ID:', correctUserId, 'for user:', user);
+      
+      await adminAPI.updateUserStatus(correctUserId, isActive);
       await loadDashboardData(); // Refresh data
     } catch (error: any) {
       console.error('Error updating user status:', error);
@@ -727,6 +806,32 @@ const AdminDashboardWrapper: React.FC<{
     } catch (error: any) {
       console.error('Error updating user role:', error);
       setError(error.response?.data?.error || error.message || 'Failed to update user role');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleUpdateUser = async (userId: string, userData: any) => {
+    try {
+      setIsProcessing(true);
+      setError('');
+      console.log('Updating user:', { userId, userData });
+      
+      // Find the user in our local data to get the correct ID
+      const user = users.find(u => u.id === userId || u.userId === userId);
+      if (!user) {
+        throw new Error('User not found in local data');
+      }
+      
+      // Use the correct ID field - try multiple possible ID fields
+      const correctUserId = user.id || user.userId || userId;
+      console.log('Using user ID:', correctUserId, 'for user:', user);
+      
+      await adminAPI.updateUser(correctUserId, userData);
+      await loadDashboardData(); // Refresh data
+    } catch (error: any) {
+      console.error('Error updating user:', error);
+      setError(error.response?.data?.error || error.message || 'Failed to update user');
     } finally {
       setIsProcessing(false);
     }
@@ -863,6 +968,7 @@ const AdminDashboardWrapper: React.FC<{
     error,
     onToggleUserStatus: handleToggleUserStatus,
     onUpdateUserRole: handleUpdateUserRole,
+    onUpdateUser: handleUpdateUser,
     onCreateStaff: handleCreateStaff,
     onCreateService: handleCreateService,
     onUpdateService: handleUpdateService,
@@ -879,7 +985,19 @@ const AdminDashboardWrapper: React.FC<{
 
 // Main App Routes component
 const AppRoutes: React.FC = () => {
-  const { isAuthenticated, user, login, register, logout, isLoading, error, clearError } = useAuth();
+  const { isAuthenticated, user, login, register, logout, forgotPassword, isLoading, error, message, clearError, clearMessage } = useAuth();
+  
+  // Initialize push notifications if user is authenticated
+  usePushNotifications(user?.id || null, user?.roles?.[0] || null);
+
+  // Debug logging for auth state
+  console.log('AppRoutes: Auth state:', {
+    isAuthenticated,
+    isLoading,
+    error,
+    message,
+    hasMessage: !!message
+  });
 
   const handleLogin = async (email: string, password: string) => {
     try {
@@ -929,9 +1047,18 @@ const AppRoutes: React.FC = () => {
             <AuthPage
               onLogin={handleLogin}
               onRegister={handleRegister}
+              onForgotPassword={async (email) => {
+                try {
+                  return await forgotPassword(email);
+                } catch (err) {
+                  return { success: false, error: 'Failed to send password reset email' };
+                }
+              }}
               isLoading={isLoading}
               error={error}
+              message={message}
               clearError={clearError}
+              clearMessage={clearMessage}
             />
           )
         } 
@@ -967,6 +1094,15 @@ const AppRoutes: React.FC = () => {
             <AdminDashboardWrapper user={user}>
               {(props) => <AdminDashboard {...props} onLogout={handleLogout} />}
             </AdminDashboardWrapper>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/email-settings"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <EmailSettingsPage />
           </ProtectedRoute>
         }
       />

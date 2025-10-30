@@ -6,13 +6,13 @@ import {
   User, 
   Phone, 
   MapPin, 
-  Heart,
   LogOut,
   Bell,
   FileText,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  UserCircle
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
@@ -21,7 +21,10 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { cn } from '../lib/utils';
 import BookingWizard from './BookingWizard';
-import { appointmentsAPI } from '../services/api';
+import { appointmentsAPI, notificationsAPI, authAPI } from '../services/api';
+import Logo from './Logo';
+import ProfileModal from './ProfileModal';
+import NotificationCenter from './NotificationCenter';
 
 interface User {
   id: string;
@@ -93,6 +96,9 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({
   const [showBookingWizard, setShowBookingWizard] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showAllNotifications, setShowAllNotifications] = useState(false);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
   const [editData, setEditData] = useState({
     serviceId: '',
     staffId: '',
@@ -104,6 +110,32 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({
   const [editTimeSlots, setEditTimeSlots] = useState<any[]>([]);
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState(user);
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+
+  // Update currentUser when user prop changes
+  useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
+  const handleUpdateProfile = async (userId: string, profileData: any) => {
+    try {
+      await authAPI.updateProfile(userId, profileData);
+      // Update local user state
+      setCurrentUser((prev: any) => ({
+        ...prev,
+        ...profileData,
+        address: profileData.address || prev.address,
+        emergencyContact: profileData.emergencyContact || prev.emergencyContact
+      }));
+      // Refresh page data by reloading
+      await onRefreshAppointments();
+    } catch (error: any) {
+      throw error;
+    }
+  };
 
   const handleBookingSuccess = async () => {
     setShowBookingWizard(false);
@@ -339,22 +371,101 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({
     new Date(apt.appointmentDate) < new Date() || apt.status === 'completed'
   );
 
+  // Load notifications when component mounts
+  useEffect(() => {
+    if (patientId) {
+      loadNotifications();
+    }
+  }, [patientId]);
+
+  // Update unread count when notifications change
+  useEffect(() => {
+    const unread = notifications.filter(n => !n.isRead).length;
+    setUnreadNotificationCount(unread);
+  }, [notifications]);
+
+  const loadNotifications = async () => {
+    if (!patientId) return;
+    
+    try {
+      setIsLoadingNotifications(true);
+      const data = await notificationsAPI.getPatientNotifications(patientId);
+      // Ensure data is an array
+      setNotifications(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+      setNotifications([]);
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+  };
+
+  const getNotificationTypeLabel = (type: string) => {
+    switch (type) {
+      case '24h_reminder':
+        return '24h Reminder';
+      case '2h_reminder':
+        return '2h Reminder';
+      case 'custom':
+        return 'Custom Message';
+      default:
+        return type;
+    }
+  };
+
+  const getNotificationTypeIcon = (type: string) => {
+    switch (type) {
+      case '24h_reminder':
+        return <Calendar className="h-4 w-4" />;
+      case '2h_reminder':
+        return <AlertCircle className="h-4 w-4" />;
+      case 'custom':
+        return <Bell className="h-4 w-4" />;
+      default:
+        return <Bell className="h-4 w-4" />;
+    }
+  };
+
+  const displayedNotifications = showAllNotifications ? notifications : notifications.slice(0, 5);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Heart className="h-8 w-8 text-primary heartbeat" />
-              <span className="text-2xl font-bold text-foreground">Hopewell Clinic</span>
-            </div>
+            <Logo size="lg" variant="with-text" textSize="xl" />
             <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="text-sm font-medium text-foreground">
-                  {user.firstName} {user.lastName}
-                </p>
-                <p className="text-xs text-muted-foreground">{user.email}</p>
+              <div className="text-right flex items-center space-x-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {currentUser.firstName} {currentUser.lastName}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowNotificationCenter(true)}
+                  className="h-8 w-8 p-0 relative"
+                  title="Notifications"
+                >
+                  <Bell className="h-5 w-5 text-primary" />
+                  {unreadNotificationCount > 0 && (
+                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowProfileModal(true)}
+                  className="h-8 w-8 p-0"
+                  title="Edit Profile"
+                >
+                  <UserCircle className="h-5 w-5 text-primary" />
+                </Button>
               </div>
               <Button variant="outline" size="sm" onClick={onLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
@@ -565,6 +676,91 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({
         </div>
       </div>
 
+      {/* Notification History Section */}
+      <div className="container mx-auto px-4 py-8">
+        <Card className="medical-card">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Bell className="h-5 w-5 text-primary" />
+              <span>Notification History</span>
+            </CardTitle>
+            <CardDescription>
+              View your recent email notifications from the clinic
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingNotifications ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading notifications...</p>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="text-center py-8">
+                <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No notifications found</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  You'll receive email notifications for appointment reminders and important updates.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {displayedNotifications.map((notification) => (
+                  <div key={notification.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start space-x-3 flex-1">
+                        <div className="flex-shrink-0 mt-1">
+                          {getNotificationTypeIcon(notification.type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-2 mb-1">
+                            <h4 className="font-medium text-foreground truncate">
+                              {notification.emailSubject}
+                            </h4>
+                            <Badge variant="outline" className="text-xs">
+                              {getNotificationTypeLabel(notification.type)}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">
+                            Sent: {notification.sentAt ? new Date(notification.sentAt).toLocaleString() : 'Not sent'}
+                          </p>
+                          {notification.appointmentDate && (
+                            <p className="text-sm text-muted-foreground">
+                              <Calendar className="h-3 w-3 inline mr-1" />
+                              Appointment: {notification.appointmentDate} at {notification.appointmentTime}
+                              {notification.serviceName && ` - ${notification.serviceName}`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        {notification.status === 'sent' ? (
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                        ) : notification.status === 'failed' ? (
+                          <XCircle className="h-5 w-5 text-red-600" />
+                        ) : (
+                          <Clock className="h-5 w-5 text-yellow-600" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {notifications.length > 5 && (
+                  <div className="text-center pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowAllNotifications(!showAllNotifications)}
+                    >
+                      {showAllNotifications ? 'Show Less' : `Show All ${notifications.length} Notifications`}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* New Booking Wizard */}
       <BookingWizard
         isOpen={showBookingWizard}
@@ -734,6 +930,28 @@ const PatientDashboard: React.FC<PatientDashboardProps> = ({
           </Card>
         </div>
       )}
+      
+      {/* Profile Modal */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        user={currentUser}
+        onUpdateProfile={handleUpdateProfile}
+        role="patient"
+      />
+      
+      {/* Notification Center */}
+      <NotificationCenter
+        userId={user.id}
+        userRole="patient"
+        patientId={patientId || undefined}
+        isOpen={showNotificationCenter}
+        onClose={() => {
+          setShowNotificationCenter(false);
+          // Reload notifications to update unread count
+          loadNotifications();
+        }}
+      />
     </div>
   );
 };

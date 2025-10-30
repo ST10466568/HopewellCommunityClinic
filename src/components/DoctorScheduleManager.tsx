@@ -5,15 +5,15 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 import { Calendar, Clock, Save, Plus, Trash2 } from 'lucide-react';
-import { staffAPI } from '../services/api';
+import { doctorAPI } from '../services/api';
 
 interface ScheduleDay {
   dayOfWeek: string;
   isActive: boolean;
-  shiftStart: string;
-  shiftEnd: string;
-  breakStart?: string;
-  breakEnd?: string;
+  startTime: string;
+  endTime: string;
+  breakStartTime?: string;
+  breakEndTime?: string;
 }
 
 interface DoctorScheduleManagerProps {
@@ -34,6 +34,13 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
     'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
   ];
 
+  // Helper function to sort schedule by day order
+  const sortScheduleByDay = (scheduleArray: ScheduleDay[]) => {
+    return scheduleArray.sort((a, b) => {
+      return daysOfWeek.indexOf(a.dayOfWeek) - daysOfWeek.indexOf(b.dayOfWeek);
+    });
+  };
+
   useEffect(() => {
     loadSchedule();
   }, [doctorId]);
@@ -42,19 +49,21 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
     setLoading(true);
     try {
       // Try to load existing schedule
-      const response = await staffAPI.getSchedule(doctorId, new Date().toISOString().split('T')[0], new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+      const response = await doctorAPI.getShiftSchedule(doctorId);
       
       if (response && response.length > 0) {
-        setSchedule(response);
+        // Sort the schedule by day order
+        const sortedSchedule = sortScheduleByDay(response);
+        setSchedule(sortedSchedule);
       } else {
         // Initialize with default schedule (all days active, 9-5)
         const defaultSchedule = daysOfWeek.map(day => ({
           dayOfWeek: day,
           isActive: day !== 'Saturday' && day !== 'Sunday', // Weekends off by default
-          shiftStart: '09:00',
-          shiftEnd: '17:00',
-          breakStart: '12:00',
-          breakEnd: '13:00'
+          startTime: '09:00',
+          endTime: '17:00',
+          breakStartTime: '12:00',
+          breakEndTime: '13:00'
         }));
         setSchedule(defaultSchedule);
       }
@@ -64,10 +73,10 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
       const defaultSchedule = daysOfWeek.map(day => ({
         dayOfWeek: day,
         isActive: day !== 'Saturday' && day !== 'Sunday',
-        shiftStart: '09:00',
-        shiftEnd: '17:00',
-        breakStart: '12:00',
-        breakEnd: '13:00'
+        startTime: '09:00',
+        endTime: '17:00',
+        breakStartTime: '12:00',
+        breakEndTime: '13:00'
       }));
       setSchedule(defaultSchedule);
     } finally {
@@ -76,11 +85,12 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
   };
 
   const updateDaySchedule = (dayOfWeek: string, updates: Partial<ScheduleDay>) => {
-    setSchedule(prev => prev.map(day => 
+    const updatedSchedule = schedule.map(day => 
       day.dayOfWeek === dayOfWeek 
         ? { ...day, ...updates }
         : day
-    ));
+    );
+    setSchedule(sortScheduleByDay(updatedSchedule));
   };
 
   const saveSchedule = async () => {
@@ -95,8 +105,8 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
         return;
       }
 
-      // Save schedule
-      await staffAPI.updateAvailability(doctorId, { schedule });
+      // Save schedule using the correct shift schedule endpoint
+      await doctorAPI.updateShiftSchedule(doctorId, schedule);
       
       if (onScheduleUpdate) {
         onScheduleUpdate(schedule);
@@ -112,20 +122,22 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
   };
 
   const toggleAllDays = (isActive: boolean) => {
-    setSchedule(prev => prev.map(day => ({ ...day, isActive })));
+    const updatedSchedule = schedule.map(day => ({ ...day, isActive }));
+    setSchedule(sortScheduleByDay(updatedSchedule));
   };
 
   const copyScheduleToAll = (sourceDay: string) => {
     const sourceSchedule = schedule.find(day => day.dayOfWeek === sourceDay);
     if (sourceSchedule) {
-      setSchedule(prev => prev.map(day => ({
+      const updatedSchedule = schedule.map(day => ({
         ...day,
         isActive: sourceSchedule.isActive,
-        shiftStart: sourceSchedule.shiftStart,
-        shiftEnd: sourceSchedule.shiftEnd,
-        breakStart: sourceSchedule.breakStart,
-        breakEnd: sourceSchedule.breakEnd
-      })));
+        startTime: sourceSchedule.startTime,
+        endTime: sourceSchedule.endTime,
+        breakStartTime: sourceSchedule.breakStartTime,
+        breakEndTime: sourceSchedule.breakEndTime
+      }));
+      setSchedule(sortScheduleByDay(updatedSchedule));
     }
   };
 
@@ -173,7 +185,7 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
           </div>
         )}
 
-        {schedule.map((day) => (
+        {sortScheduleByDay(schedule).map((day) => (
           <div key={day.dayOfWeek} className="border rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-3">
@@ -201,32 +213,32 @@ const DoctorScheduleManager: React.FC<DoctorScheduleManagerProps> = ({
                   <Label>Shift Start</Label>
                   <Input
                     type="time"
-                    value={day.shiftStart}
-                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { shiftStart: e.target.value })}
+                    value={day.startTime}
+                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { startTime: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Shift End</Label>
                   <Input
                     type="time"
-                    value={day.shiftEnd}
-                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { shiftEnd: e.target.value })}
+                    value={day.endTime}
+                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { endTime: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Break Start (Optional)</Label>
                   <Input
                     type="time"
-                    value={day.breakStart || ''}
-                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { breakStart: e.target.value })}
+                    value={day.breakStartTime || ''}
+                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { breakStartTime: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Break End (Optional)</Label>
                   <Input
                     type="time"
-                    value={day.breakEnd || ''}
-                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { breakEnd: e.target.value })}
+                    value={day.breakEndTime || ''}
+                    onChange={(e) => updateDaySchedule(day.dayOfWeek, { breakEndTime: e.target.value })}
                   />
                 </div>
               </div>

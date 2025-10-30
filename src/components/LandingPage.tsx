@@ -1,8 +1,9 @@
 import React from 'react';
-import { Heart, Calendar, Users, Clock, Phone, MapPin, Mail } from 'lucide-react';
+import { Calendar, Users, Clock, Phone, MapPin, Mail, Stethoscope } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import Logo from './Logo';
 
 const LandingPage: React.FC = () => {
   const services = [
@@ -21,7 +22,7 @@ const LandingPage: React.FC = () => {
     {
       title: "Specialist Referrals",
       description: "Expert consultations with specialized medical professionals",
-      icon: Heart,
+      icon: Stethoscope,
       duration: "45 min"
     }
   ];
@@ -53,10 +54,7 @@ const LandingPage: React.FC = () => {
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Heart className="h-8 w-8 text-primary heartbeat" />
-              <span className="text-2xl font-bold text-foreground">Hopewell Community Clinic</span>
-            </div>
+            <Logo size="md" variant="with-text" textSize="xl" />
             <Button asChild>
               <a href="/auth">Get Started</a>
             </Button>
@@ -211,10 +209,7 @@ const LandingPage: React.FC = () => {
       <footer className="border-t bg-background">
         <div className="container mx-auto px-4 py-8">
           <div className="flex flex-col md:flex-row justify-between items-center">
-            <div className="flex items-center space-x-2 mb-4 md:mb-0">
-              <Heart className="h-6 w-6 text-primary" />
-              <span className="text-lg font-semibold">Hopewell Community Clinic</span>
-            </div>
+            <Logo size="sm" variant="with-text" textSize="md" />
             <p className="text-muted-foreground text-sm">
               © 2024 Hopewell Community Clinic. All rights reserved.
             </p>

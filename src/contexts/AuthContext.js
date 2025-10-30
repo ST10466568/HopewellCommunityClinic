@@ -8,6 +8,7 @@ const initialState = {
   isAuthenticated: false,
   isLoading: true,
   error: null,
+  message: null,
 };
 
 // Action types
@@ -18,11 +19,18 @@ const AUTH_ACTIONS = {
   REGISTER_START: 'REGISTER_START',
   REGISTER_SUCCESS: 'REGISTER_SUCCESS',
   REGISTER_FAILURE: 'REGISTER_FAILURE',
+  FORGOT_PASSWORD_START: 'FORGOT_PASSWORD_START',
+  FORGOT_PASSWORD_SUCCESS: 'FORGOT_PASSWORD_SUCCESS',
+  FORGOT_PASSWORD_FAILURE: 'FORGOT_PASSWORD_FAILURE',
+  RESET_PASSWORD_START: 'RESET_PASSWORD_START',
+  RESET_PASSWORD_SUCCESS: 'RESET_PASSWORD_SUCCESS',
+  RESET_PASSWORD_FAILURE: 'RESET_PASSWORD_FAILURE',
   LOGOUT: 'LOGOUT',
   LOAD_USER_START: 'LOAD_USER_START',
   LOAD_USER_SUCCESS: 'LOAD_USER_SUCCESS',
   LOAD_USER_FAILURE: 'LOAD_USER_FAILURE',
   CLEAR_ERROR: 'CLEAR_ERROR',
+  CLEAR_MESSAGE: 'CLEAR_MESSAGE',
 };
 
 // Reducer
@@ -31,6 +39,8 @@ const authReducer = (state, action) => {
     case AUTH_ACTIONS.LOGIN_START:
     case AUTH_ACTIONS.REGISTER_START:
     case AUTH_ACTIONS.LOAD_USER_START:
+    case AUTH_ACTIONS.FORGOT_PASSWORD_START:
+    case AUTH_ACTIONS.RESET_PASSWORD_START:
       return {
         ...state,
         isLoading: true,
@@ -49,9 +59,22 @@ const authReducer = (state, action) => {
         error: null,
       };
 
+    case AUTH_ACTIONS.FORGOT_PASSWORD_SUCCESS:
+    case AUTH_ACTIONS.RESET_PASSWORD_SUCCESS:
+      console.log('AuthContext Reducer: FORGOT_PASSWORD_SUCCESS/RESET_PASSWORD_SUCCESS action received');
+      console.log('AuthContext Reducer: Payload:', action.payload);
+      return {
+        ...state,
+        isLoading: false,
+        error: null,
+        message: action.payload.message,
+      };
+
     case AUTH_ACTIONS.LOGIN_FAILURE:
     case AUTH_ACTIONS.REGISTER_FAILURE:
     case AUTH_ACTIONS.LOAD_USER_FAILURE:
+    case AUTH_ACTIONS.FORGOT_PASSWORD_FAILURE:
+    case AUTH_ACTIONS.RESET_PASSWORD_FAILURE:
       return {
         ...state,
         user: null,
@@ -59,6 +82,7 @@ const authReducer = (state, action) => {
         isAuthenticated: false,
         isLoading: false,
         error: action.payload,
+        message: null,
       };
 
     case AUTH_ACTIONS.LOGOUT:
@@ -69,12 +93,20 @@ const authReducer = (state, action) => {
         isAuthenticated: false,
         isLoading: false,
         error: null,
+        message: null,
       };
 
     case AUTH_ACTIONS.CLEAR_ERROR:
       return {
         ...state,
         error: null,
+        // Don't clear message when clearing error
+      };
+
+    case AUTH_ACTIONS.CLEAR_MESSAGE:
+      return {
+        ...state,
+        message: null,
       };
 
     default:
@@ -211,14 +243,78 @@ export const AuthProvider = ({ children }) => {
       // Clear localStorage
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      
+      // Clear all shift schedule data from localStorage
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('shiftSchedule_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      console.log('🧹 Cleared shift schedule data from localStorage');
 
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
+    }
+  };
+
+  // Forgot password function
+  const forgotPassword = async (email) => {
+    console.log('AuthContext: forgotPassword called with email:', email);
+    dispatch({ type: AUTH_ACTIONS.FORGOT_PASSWORD_START });
+
+    try {
+      const response = await authAPI.forgotPassword(email);
+      console.log('AuthContext: Received response:', response);
+      
+      dispatch({
+        type: AUTH_ACTIONS.FORGOT_PASSWORD_SUCCESS,
+        payload: { message: response.message },
+      });
+      
+      console.log('AuthContext: Dispatched FORGOT_PASSWORD_SUCCESS with message:', response.message);
+      return { success: true, message: response.message };
+    } catch (error) {
+      console.error('AuthContext: Forgot password error:', error);
+      const errorMessage = error.error || error.message || 'Failed to send password reset email';
+      dispatch({
+        type: AUTH_ACTIONS.FORGOT_PASSWORD_FAILURE,
+        payload: errorMessage,
+      });
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  // Reset password function
+  const resetPassword = async (token, newPassword) => {
+    dispatch({ type: AUTH_ACTIONS.RESET_PASSWORD_START });
+
+    try {
+      const response = await authAPI.resetPassword(token, newPassword);
+      dispatch({
+        type: AUTH_ACTIONS.RESET_PASSWORD_SUCCESS,
+        payload: { message: response.message },
+      });
+      return { success: true, message: response.message };
+    } catch (error) {
+      const errorMessage = error.error || error.message || 'Failed to reset password';
+      dispatch({
+        type: AUTH_ACTIONS.RESET_PASSWORD_FAILURE,
+        payload: errorMessage,
+      });
+      return { success: false, error: errorMessage };
     }
   };
 
   // Clear error function
   const clearError = useCallback(() => {
     dispatch({ type: AUTH_ACTIONS.CLEAR_ERROR });
+  }, []);
+
+  // Clear message function
+  const clearMessage = useCallback(() => {
+    dispatch({ type: AUTH_ACTIONS.CLEAR_MESSAGE });
   }, []);
 
   // Check if user has specific role
@@ -241,7 +337,10 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    forgotPassword,
+    resetPassword,
     clearError,
+    clearMessage,
     hasRole,
     hasAnyRole,
     getPrimaryRole,

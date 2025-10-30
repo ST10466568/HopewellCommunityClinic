@@ -1,9 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { authAPI } from '../services/api';
+import ProfileModal from './ProfileModal';
 
 const Navigation = ({ onMenuClick, user }) => {
   const { logout, getPrimaryRole } = useAuth();
   const role = getPrimaryRole();
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState(user);
+
+  React.useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
+  const handleUpdateProfile = async (userId, profileData) => {
+    try {
+      await authAPI.updateProfile(userId, profileData);
+      setCurrentUser(prev => ({
+        ...prev,
+        ...profileData,
+        address: profileData.address || prev.address,
+        emergencyContact: profileData.emergencyContact || prev.emergencyContact
+      }));
+    } catch (error) {
+      throw error;
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -49,11 +71,14 @@ const Navigation = ({ onMenuClick, user }) => {
           )
         ),
         React.createElement('div', {
-          className: 'flex items-center gap-2'
+          className: 'flex items-center gap-1'
         },
-          React.createElement('span', {
-            className: 'text-2xl'
-          }, '💚'),
+          React.createElement('img', {
+            src: '/logo.png',
+            alt: 'Hopewell Clinic Logo',
+            className: 'h-24 w-12 object-contain flex-shrink-0',
+            style: { height: '96px', width: '48px', maxWidth: '48px' }
+          }),
           React.createElement('h1', {
             className: 'text-xl font-semibold text-primary'
           }, 'Hopewell Clinic')
@@ -65,27 +90,57 @@ const Navigation = ({ onMenuClick, user }) => {
         className: 'flex items-center gap-4'
       },
         React.createElement('div', {
-          className: 'text-right'
+          className: 'text-right flex items-center space-x-2'
         },
-          React.createElement('p', {
-            className: 'text-sm font-medium text-primary'
-          }, `${user?.firstName} ${user?.lastName}`),
-          React.createElement('p', {
-            className: 'text-xs text-secondary'
-          }, getRoleDisplayName(role))
+          React.createElement('div', null,
+            React.createElement('p', {
+              className: 'text-sm font-medium text-primary'
+            }, `${currentUser?.firstName} ${currentUser?.lastName}`),
+            React.createElement('p', {
+              className: 'text-xs text-secondary'
+            }, getRoleDisplayName(role))
+          ),
+          React.createElement('button', {
+            className: 'h-8 w-8 p-0 flex items-center justify-center hover:bg-gray-100 rounded-md transition-colors',
+            onClick: () => setShowProfileModal(true),
+            title: 'Edit Profile',
+            'aria-label': 'Edit Profile'
+          },
+            React.createElement('svg', {
+              className: 'h-5 w-5 text-primary',
+              fill: 'none',
+              stroke: 'currentColor',
+              viewBox: '0 0 24 24'
+            },
+              React.createElement('path', {
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                strokeWidth: 2,
+                d: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'
+              })
+            )
+          )
         ),
         React.createElement('div', {
           className: 'w-8 h-8 bg-primary rounded-full flex items-center justify-center'
         },
           React.createElement('span', {
             className: 'text-white text-sm font-medium'
-          }, user?.firstName?.[0]?.toUpperCase() || 'U')
+          }, currentUser?.firstName?.[0]?.toUpperCase() || 'U')
         ),
         React.createElement('button', {
           className: 'btn btn-secondary btn-sm',
           onClick: handleLogout
         }, 'Logout')
-      )
+      ),
+      // Profile Modal
+      React.createElement(ProfileModal, {
+        isOpen: showProfileModal,
+        onClose: () => setShowProfileModal(false),
+        user: currentUser || {},
+        onUpdateProfile: handleUpdateProfile,
+        role: role
+      })
     )
   );
 };

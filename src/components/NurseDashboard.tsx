@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import Logo from './Logo';
 import { 
   Calendar, 
   Clock, 
@@ -21,8 +22,13 @@ import {
   X,
   UserPlus,
   Activity,
-  Stethoscope
+  Stethoscope,
+  UserCircle,
+  Bell
 } from 'lucide-react';
+import { authAPI, notificationsAPI } from '../services/api';
+import ProfileModal from './ProfileModal';
+import NotificationCenter from './NotificationCenter';
 
 interface User {
   id: string;
@@ -108,6 +114,56 @@ const NurseDashboard: React.FC<NurseDashboardProps> = ({
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>('');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState(user);
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
+  // Load notifications and calculate unread count
+  useEffect(() => {
+    const loadNotifications = async () => {
+      try {
+        // For nurses, we need to get staffId from user
+        // Assuming user has staffId or we use userId
+        const staffId = (user as any).staffId || user.id;
+        if (staffId) {
+          const data = await notificationsAPI.getStaffNotifications(staffId);
+          const notificationsArray = Array.isArray(data) ? data : [];
+          setNotifications(notificationsArray);
+          const unread = notificationsArray.filter((n: any) => !n.isRead).length;
+          setUnreadNotificationCount(unread);
+        }
+      } catch (error) {
+        console.error('Error loading notifications:', error);
+        setNotifications([]);
+        setUnreadNotificationCount(0);
+      }
+    };
+
+    loadNotifications();
+    // Refresh notifications every 30 seconds
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const handleUpdateProfile = async (userId: string, profileData: any) => {
+    try {
+      await authAPI.updateProfile(userId, profileData);
+      setCurrentUser((prev: any) => ({
+        ...prev,
+        ...profileData,
+        address: profileData.address || prev.address,
+        emergencyContact: profileData.emergencyContact || prev.emergencyContact
+      }));
+    } catch (error: any) {
+      throw error;
+    }
+  };
   
   const [walkInData, setWalkInData] = useState({
     patientFirstName: '',
@@ -214,19 +270,42 @@ const NurseDashboard: React.FC<NurseDashboardProps> = ({
       <header className="bg-card border-b border-border">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-                <span className="text-primary-foreground text-xl">💚</span>
-              </div>
-              <div>
+            <div className="flex items-center space-x-2">
+              <Logo size="lg" variant="icon-only" />
+              <div className="flex flex-col justify-center">
                 <h1 className="text-2xl font-bold text-foreground">Hopewell Community Clinic</h1>
                 <p className="text-sm text-muted-foreground">Nurse Dashboard</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="font-medium text-foreground">Nurse {user.firstName} {user.lastName}</p>
-                <p className="text-sm text-muted-foreground">{user.email}</p>
+              <div className="text-right flex items-center space-x-2">
+                <div>
+                  <p className="font-medium text-foreground">Nurse {currentUser.firstName} {currentUser.lastName}</p>
+                  <p className="text-sm text-muted-foreground">{currentUser.email}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowNotificationCenter(true)}
+                  className="h-8 w-8 p-0 relative"
+                  title="Notifications"
+                >
+                  <Bell className="h-5 w-5 text-primary" />
+                  {unreadNotificationCount > 0 && (
+                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowProfileModal(true)}
+                  className="h-8 w-8 p-0"
+                  title="Edit Profile"
+                >
+                  <UserCircle className="h-5 w-5 text-primary" />
+                </Button>
               </div>
               <Button variant="outline" onClick={onLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
@@ -823,6 +902,42 @@ const NurseDashboard: React.FC<NurseDashboardProps> = ({
           </Card>
         </div>
       )}
+      
+      {/* Profile Modal */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        user={currentUser}
+        onUpdateProfile={handleUpdateProfile}
+        role="nurse"
+      />
+
+      {/* Notification Center */}
+      <NotificationCenter
+        userId={user.id}
+        userRole="nurse"
+        staffId={(user as any).staffId || user.id}
+        isOpen={showNotificationCenter}
+        onClose={() => {
+          setShowNotificationCenter(false);
+          // Reload notifications to update unread count
+          const loadNotifications = async () => {
+            try {
+              const staffId = (user as any).staffId || user.id;
+              if (staffId) {
+                const data = await notificationsAPI.getStaffNotifications(staffId);
+                const notificationsArray = Array.isArray(data) ? data : [];
+                setNotifications(notificationsArray);
+                const unread = notificationsArray.filter((n: any) => !n.isRead).length;
+                setUnreadNotificationCount(unread);
+              }
+            } catch (error) {
+              console.error('Error loading notifications:', error);
+            }
+          };
+          loadNotifications();
+        }}
+      />
     </div>
   );
 };

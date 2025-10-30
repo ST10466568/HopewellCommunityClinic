@@ -5,6 +5,7 @@ import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import DailySchedule from './DailySchedule';
+import Logo from './Logo';
 import { 
   Calendar, 
   Clock, 
@@ -23,8 +24,15 @@ import {
   History,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  UserCircle,
+  Bell,
+  MessageSquare
 } from 'lucide-react';
+import { authAPI, staffAPI, notificationsAPI } from '../services/api';
+import ProfileModal from './ProfileModal';
+import NotificationCenter from './NotificationCenter';
+import SendMessageModal from './SendMessageModal';
 
 interface User {
   id: string;
@@ -126,26 +134,95 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>('');
   const [newShiftSchedule, setNewShiftSchedule] = useState<ShiftSchedule[]>([]);
-  
-  // Pagination and search states
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState(user);
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+  const [showSendMessageModal, setShowSendMessageModal] = useState(false);
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
+  useEffect(() => {
+    // Load staff list for messaging
+    const loadStaff = async () => {
+      try {
+        const staffData = await staffAPI.getAll();
+        setStaffList(staffData || []);
+      } catch (error) {
+        console.error('Error loading staff for messaging:', error);
+        setStaffList([]);
+      }
+    };
+    loadStaff();
+  }, []);
+
+  // Load notifications and calculate unread count
+  useEffect(() => {
+    const loadNotifications = async () => {
+      try {
+        const staffId = user.staffId || user.id;
+        if (staffId) {
+          const data = await notificationsAPI.getStaffNotifications(staffId);
+          const notificationsArray = Array.isArray(data) ? data : [];
+          setNotifications(notificationsArray);
+          const unread = notificationsArray.filter((n: any) => !n.isRead).length;
+          setUnreadNotificationCount(unread);
+        }
+      } catch (error) {
+        console.error('Error loading notifications:', error);
+        setNotifications([]);
+        setUnreadNotificationCount(0);
+      }
+    };
+
+    loadNotifications();
+    // Refresh notifications every 30 seconds
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [user.staffId, user.id]);
+
+  const handleUpdateProfile = async (userId: string, profileData: any) => {
+    try {
+      await authAPI.updateProfile(userId, profileData);
+      setCurrentUser((prev: any) => ({
+        ...prev,
+        ...profileData,
+        address: profileData.address || prev.address,
+        emergencyContact: profileData.emergencyContact || prev.emergencyContact
+      }));
+    } catch (error: any) {
+      throw error;
+    }
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+  // Helper function to sort schedule by day order
+  const sortScheduleByDay = (scheduleArray: ShiftSchedule[]) => {
+    return scheduleArray.sort((a, b) => {
+      return daysOfWeek.indexOf(a.dayOfWeek) - daysOfWeek.indexOf(b.dayOfWeek);
+    });
+  };
+
   useEffect(() => {
     // Initialize shift schedule with current data or defaults
     if (shiftSchedule.length > 0) {
-      setNewShiftSchedule(shiftSchedule);
+      setNewShiftSchedule(sortScheduleByDay(shiftSchedule));
     } else {
       // Initialize with default schedule (09:00-17:00, Monday-Friday active)
-      setNewShiftSchedule(daysOfWeek.map(day => ({
+      setNewShiftSchedule(sortScheduleByDay(daysOfWeek.map(day => ({
         dayOfWeek: day,
         startTime: '09:00',
         endTime: '17:00',
         isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
-      })));
+      }))));
     }
   }, [shiftSchedule]);
 
@@ -235,9 +312,10 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   };
 
   const handleShiftChange = (dayIndex: number, field: keyof ShiftSchedule, value: any) => {
-    setNewShiftSchedule(prev => prev.map((shift, index) => 
+    const updatedSchedule = newShiftSchedule.map((shift, index) => 
       index === dayIndex ? { ...shift, [field]: value } : shift
-    ));
+    );
+    setNewShiftSchedule(sortScheduleByDay(updatedSchedule));
   };
 
   const handleSaveShiftSchedule = async () => {
@@ -282,19 +360,51 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
       <header className="bg-card border-b border-border">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-                <span className="text-primary-foreground text-xl">💚</span>
-              </div>
-              <div>
+            <div className="flex items-center space-x-2">
+              <Logo size="lg" variant="icon-only" />
+              <div className="flex flex-col justify-center">
                 <h1 className="text-2xl font-bold text-foreground">Hopewell Community Clinic</h1>
                 <p className="text-sm text-muted-foreground">Doctor Dashboard</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="font-medium text-foreground">Dr. {user.firstName} {user.lastName}</p>
-                <p className="text-sm text-muted-foreground">{user.email}</p>
+              <div className="text-right flex items-center space-x-2">
+                <div>
+                  <p className="font-medium text-foreground">Dr. {currentUser.firstName} {currentUser.lastName}</p>
+                  <p className="text-sm text-muted-foreground">{currentUser.email}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowSendMessageModal(true)}
+                  className="h-8 w-8 p-0"
+                  title="Send Message"
+                >
+                  <MessageSquare className="h-5 w-5 text-primary" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowNotificationCenter(true)}
+                  className="h-8 w-8 p-0 relative"
+                  title="Notifications"
+                >
+                  <Bell className="h-5 w-5 text-primary" />
+                  {unreadNotificationCount > 0 && (
+                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowProfileModal(true)}
+                  className="h-8 w-8 p-0"
+                  title="Edit Profile"
+                >
+                  <UserCircle className="h-5 w-5 text-primary" />
+                </Button>
               </div>
               <Button variant="outline" onClick={onLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
@@ -744,9 +854,6 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                 return (
                   <DailySchedule 
                     doctorId={fallbackStaffId}
-                    onBookAppointment={() => {
-                      console.log('Book appointment clicked');
-                    }}
                   />
                 );
               }
@@ -754,10 +861,6 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
               return (
                 <DailySchedule 
                   doctorId={user.staffId}
-                  onBookAppointment={() => {
-                    // This could open a booking modal or navigate to booking page
-                    console.log('Book appointment clicked');
-                  }}
                 />
               );
             })()}
@@ -833,12 +936,12 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setNewShiftSchedule(daysOfWeek.map(day => ({
+                      setNewShiftSchedule(sortScheduleByDay(daysOfWeek.map(day => ({
                         dayOfWeek: day,
                         startTime: '09:00',
                         endTime: '17:00',
                         isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
-                      })));
+                      }))));
                     }}
                   >
                     Set Weekdays (9-5)
@@ -847,12 +950,12 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setNewShiftSchedule(daysOfWeek.map(day => ({
+                      setNewShiftSchedule(sortScheduleByDay(daysOfWeek.map(day => ({
                         dayOfWeek: day,
                         startTime: '09:00',
                         endTime: '17:00',
                         isActive: true
-                      })));
+                      }))));
                     }}
                   >
                     Set All Days (9-5)
@@ -861,12 +964,12 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setNewShiftSchedule(daysOfWeek.map(day => ({
+                      setNewShiftSchedule(sortScheduleByDay(daysOfWeek.map(day => ({
                         dayOfWeek: day,
                         startTime: '09:00',
                         endTime: '17:00',
                         isActive: false
-                      })));
+                      }))));
                     }}
                   >
                     Clear All
@@ -881,7 +984,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                         endTime: '17:00',
                         isActive: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)
                       }));
-                      setNewShiftSchedule(defaultSchedule);
+                      setNewShiftSchedule(sortScheduleByDay(defaultSchedule));
                     }}
                   >
                     Reset to Defaults
@@ -1062,6 +1165,53 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
           </Card>
         </div>
       )}
+      
+      {/* Profile Modal */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        user={currentUser}
+        onUpdateProfile={handleUpdateProfile}
+        role="doctor"
+      />
+      
+      {/* Notification Center */}
+      <NotificationCenter
+        userId={user.id}
+        userRole="doctor"
+        staffId={user.staffId || user.id}
+        isOpen={showNotificationCenter}
+        onClose={() => {
+          setShowNotificationCenter(false);
+          // Reload notifications to update unread count
+          const loadNotifications = async () => {
+            try {
+              const staffId = user.staffId || user.id;
+              if (staffId) {
+                const data = await notificationsAPI.getStaffNotifications(staffId);
+                const notificationsArray = Array.isArray(data) ? data : [];
+                setNotifications(notificationsArray);
+                const unread = notificationsArray.filter((n: any) => !n.isRead).length;
+                setUnreadNotificationCount(unread);
+              }
+            } catch (error) {
+              console.error('Error loading notifications:', error);
+            }
+          };
+          loadNotifications();
+        }}
+      />
+      
+      {/* Send Message Modal */}
+      <SendMessageModal
+        isOpen={showSendMessageModal}
+        onClose={() => setShowSendMessageModal(false)}
+        senderId={user.id}
+        senderRole="doctor"
+        senderName={`Dr. ${currentUser.firstName} ${currentUser.lastName}`}
+        existingPatients={patients}
+        existingStaff={staffList}
+      />
     </div>
   );
 };

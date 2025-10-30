@@ -1,28 +1,37 @@
-import React, { useState } from 'react';
-import { Heart, Eye, EyeOff, LogIn, UserPlus } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff, LogIn, UserPlus, Home } from 'lucide-react';
+import Logo from './Logo';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
+import ForgotPassword from './ForgotPassword';
 
 interface AuthPageProps {
   onLogin: (email: string, password: string) => Promise<void>;
   onRegister: (userData: any) => Promise<{ success: boolean; error?: string; message?: string }>;
+  onForgotPassword: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   isLoading: boolean;
   error: string | null;
+  message: string | null;
   clearError: () => void;
+  clearMessage: () => void;
 }
 
 const AuthPage: React.FC<AuthPageProps> = ({
   onLogin,
   onRegister,
+  onForgotPassword,
   isLoading,
   error,
-  clearError
+  message,
+  clearError,
+  clearMessage
 }) => {
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -34,6 +43,14 @@ const AuthPage: React.FC<AuthPageProps> = ({
     address: ''
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Monitor message changes
+  useEffect(() => {
+    console.log('AuthPage: useEffect - message changed to:', message);
+    if (message && showForgotPassword) {
+      console.log('AuthPage: Message is available and showing forgot password, should trigger re-render');
+    }
+  }, [message, showForgotPassword]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -124,18 +141,61 @@ const AuthPage: React.FC<AuthPageProps> = ({
     clearError();
   };
 
+  const handleForgotPassword = async (email: string) => {
+    try {
+      return await onForgotPassword(email);
+    } catch (err) {
+      return { success: false, error: 'Failed to send password reset email' };
+    }
+  };
+
+  const handleBackToLogin = () => {
+    setShowForgotPassword(false);
+    clearError();
+    clearMessage();
+  };
+
+  // Show forgot password component if needed
+  if (showForgotPassword) {
+    console.log('AuthPage: Rendering ForgotPassword with props:', {
+      isLoading,
+      error,
+      message,
+      hasMessage: !!message
+    });
+    
+    return (
+      <ForgotPassword
+        onBackToLogin={handleBackToLogin}
+        onForgotPassword={handleForgotPassword}
+        isLoading={isLoading}
+        error={error}
+        message={message}
+        clearError={clearError}
+        clearMessage={clearMessage}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center space-x-2 mb-4">
-            <Heart className="h-8 w-8 text-primary heartbeat" />
-            <span className="text-2xl font-bold text-foreground">Hopewell Clinic</span>
+          <div className="flex items-center justify-center mb-4">
+            <Logo size="md" variant="with-text" textSize="xl" />
           </div>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mb-4">
             {isLoginMode ? 'Welcome back to your health journey' : 'Join our healthcare community'}
           </p>
+          <Button 
+            variant="ghost" 
+            onClick={() => window.location.href = '/'}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Home className="h-4 w-4 mr-2" />
+            Return to Home
+          </Button>
         </div>
 
         {/* Auth Card */}
@@ -314,6 +374,17 @@ const AuthPage: React.FC<AuthPageProps> = ({
                 </div>
                 {formErrors.password && (
                   <p className="text-sm text-destructive mt-1">{formErrors.password}</p>
+                )}
+                {isLoginMode && (
+                  <div className="text-right mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Forgot your password?
+                    </button>
+                  </div>
                 )}
               </div>
 
