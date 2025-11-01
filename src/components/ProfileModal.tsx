@@ -29,7 +29,7 @@ interface ProfileModalProps {
     };
   };
   onUpdateProfile: (userId: string, profileData: any) => Promise<void>;
-  role?: 'patient' | 'doctor' | 'nurse' | 'admin';
+  role?: 'patient' | 'doctor' | 'admin';
 }
 
 const ProfileModal: React.FC<ProfileModalProps> = ({

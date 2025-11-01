@@ -200,7 +200,6 @@ const AdminDashboard = () => {
     switch (role) {
       case 'patient': return 'Patient';
       case 'doctor': return 'Doctor';
-      case 'nurse': return 'Nurse';
       case 'admin': return 'Administrator';
       default: return role;
     }
@@ -367,7 +366,6 @@ const AdminDashboard = () => {
                     },
                       React.createElement('option', { value: 'patient' }, 'Patient'),
                       React.createElement('option', { value: 'doctor' }, 'Doctor'),
-                      React.createElement('option', { value: 'nurse' }, 'Nurse'),
                       React.createElement('option', { value: 'admin' }, 'Admin')
                     )
                   ),
@@ -494,7 +492,6 @@ const AdminDashboard = () => {
           options: [
             { value: 'patient', label: 'Patient' },
             { value: 'doctor', label: 'Doctor' },
-            { value: 'nurse', label: 'Nurse' },
             { value: 'admin', label: 'Administrator' }
           ],
           required: true

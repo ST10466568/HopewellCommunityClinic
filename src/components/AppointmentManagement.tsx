@@ -137,20 +137,27 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   };
 
   // Filter appointments based on search term and status
-  const filteredAppointments = appointments.filter(appointment => {
-    const matchesSearch = 
-      appointment.patient.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      appointment.patient.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      appointment.patient.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      appointment.service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (appointment.staff && 
-        `${appointment.staff.firstName} ${appointment.staff.lastName}`.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+  const filteredAppointments = appointments
+    .filter(appointment => {
+      const matchesSearch = 
+        appointment.patient.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        appointment.patient.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        appointment.patient.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        appointment.service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (appointment.staff && 
+          `${appointment.staff.firstName} ${appointment.staff.lastName}`.toLowerCase().includes(searchTerm.toLowerCase())
+        );
 
-    const matchesStatus = statusFilter === 'all' || appointment.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+      const matchesStatus = statusFilter === 'all' || appointment.status === statusFilter;
+      
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      // Sort by createdAt descending (newest first)
+      const dateA = new Date((a as any).createdAt || a.appointmentDate || 0);
+      const dateB = new Date((b as any).createdAt || b.appointmentDate || 0);
+      return dateB.getTime() - dateA.getTime();
+    });
 
   // Pagination
   const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage);
@@ -246,18 +253,30 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       setIsLoading(true);
       setError('');
 
+      // Format time to HH:mm:ss if needed
+      const startTimeFormatted = editForm.startTime.includes(':') && editForm.startTime.split(':').length === 2 
+        ? editForm.startTime + ':00' 
+        : editForm.startTime;
+      const endTimeFormatted = editForm.endTime.includes(':') && editForm.endTime.split(':').length === 2 
+        ? editForm.endTime + ':00' 
+        : editForm.endTime;
+
       // Prepare update data
       const updateData = {
         appointmentDate: editForm.appointmentDate,
-        startTime: editForm.startTime,
-        endTime: editForm.endTime,
+        startTime: startTimeFormatted,
+        endTime: endTimeFormatted,
         status: editForm.status,
-        staffId: editForm.doctorId,
+        staffId: editForm.doctorId || undefined,
         serviceId: editForm.serviceId,
-        notes: editForm.notes
+        notes: editForm.notes || ''
       };
 
+      console.log('Admin updating appointment with data:', updateData);
       await appointmentsAPI.update(editingAppointment.id, updateData);
+      
+      // Show success message
+      alert('Appointment updated successfully!');
       
       // Close modal and refresh data
       setIsEditModalOpen(false);
@@ -266,7 +285,9 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       
     } catch (error: any) {
       console.error('Error updating appointment:', error);
-      setError(error.message || 'Failed to update appointment');
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to update appointment';
+      setError(errorMessage);
+      alert(`Failed to update appointment: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }

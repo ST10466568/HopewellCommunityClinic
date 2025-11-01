@@ -21,7 +21,6 @@ import {
   Eye,
   Check,
   X,
-  History,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -107,6 +106,8 @@ interface DoctorDashboardProps {
   error: string;
   onApproveAppointment: (appointmentId: string) => Promise<void>;
   onRejectAppointment: (appointmentId: string, reason: string) => Promise<void>;
+  onCancelAppointment: (appointmentId: string) => Promise<void>;
+  onUpdateAppointment: (appointmentId: string, updateData: any) => Promise<void>;
   onUpdateShiftSchedule: (shiftData: ShiftSchedule[]) => Promise<void>;
   onViewPatientDetails: (patientId: string) => Promise<void>;
   onLogout: () => void;
@@ -122,6 +123,8 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   error,
   onApproveAppointment,
   onRejectAppointment,
+  onCancelAppointment,
+  onUpdateAppointment,
   onUpdateShiftSchedule,
   onViewPatientDetails,
   onLogout
@@ -134,6 +137,17 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>('');
   const [newShiftSchedule, setNewShiftSchedule] = useState<ShiftSchedule[]>([]);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+  const [editForm, setEditForm] = useState({
+    appointmentDate: '',
+    startTime: '',
+    endTime: '',
+    notes: '',
+    serviceId: ''
+  });
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [currentUser, setCurrentUser] = useState(user);
   const [showNotificationCenter, setShowNotificationCenter] = useState(false);
@@ -319,8 +333,21 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
   };
 
   const handleSaveShiftSchedule = async () => {
-    await onUpdateShiftSchedule(newShiftSchedule);
-    setShowShiftModal(false);
+    try {
+      // ✅ DETAILED LOGGING: Log before saving
+      console.group('💾 [Saving Shift Schedule]');
+      console.log('📅 Shift Schedule to Save:', newShiftSchedule);
+      console.log('📊 Number of Days:', newShiftSchedule?.length);
+      console.log('👤 User:', user);
+      console.groupEnd();
+      
+      await onUpdateShiftSchedule(newShiftSchedule);
+      setShowShiftModal(false);
+    } catch (error: any) {
+      console.error('❌ Error saving shift schedule:', error);
+      // Error is already shown in alert by onUpdateShiftSchedule
+      // Don't close modal if save failed
+    }
   };
 
   const handleViewPatient = async (patient: Patient) => {
@@ -335,6 +362,238 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
       setShowRejectModal(false);
       setRejectReason('');
       setSelectedAppointmentId('');
+    }
+  };
+
+  const handleEditAppointment = (appointment: Appointment) => {
+    // ✅ DETAILED LOGGING: Log appointment being edited
+    console.group('📝 [Edit Appointment Clicked]');
+    console.log('📅 Full Appointment Object:', appointment);
+    console.log('📅 Appointment ID:', appointment.id);
+    console.log('📅 Appointment Date (raw):', appointment.appointmentDate);
+    console.log('⏰ Start Time (raw):', appointment.startTime);
+    console.log('📊 End Time (raw):', appointment.endTime);
+    console.log('✅ Status:', appointment.status);
+    console.log('👤 Staff ID:', appointment.staffId);
+    console.log('👨‍⚕️ Doctor ID:', appointment.doctorId);
+    
+    // Parse dates for logging
+    if (appointment.appointmentDate && appointment.startTime) {
+      // ✅ FIX: Extract date part only (remove time if present)
+      const datePart = appointment.appointmentDate.split('T')[0];
+      const dateTimeString = `${datePart}T${appointment.startTime}`;
+      const appointmentDateTime = new Date(dateTimeString);
+      const currentDateTime = new Date();
+      
+      console.log('🔗 Combined DateTime String:', dateTimeString);
+      console.log('📅 Parsed Appointment DateTime:', appointmentDateTime.toLocaleString());
+      console.log('🕐 Current DateTime:', currentDateTime.toLocaleString());
+      console.log('⏱️ Time Until Appointment:', 
+        Math.round((appointmentDateTime.getTime() - currentDateTime.getTime()) / (1000 * 60)) + ' minutes'
+      );
+    }
+    
+    console.groupEnd();
+    
+    setEditingAppointment(appointment);
+    setEditForm({
+      appointmentDate: appointment.appointmentDate.split('T')[0],
+      startTime: appointment.startTime.substring(0, 5), // Format as HH:mm
+      endTime: appointment.endTime.substring(0, 5),
+      notes: appointment.notes || '',
+      serviceId: appointment.service?.id || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveAppointment = async () => {
+    if (!editingAppointment) return;
+    
+    // ✅ CRITICAL: Verify appointment ownership before allowing update
+    const userStaffId = user.staffId;
+    if (userStaffId) {
+      const belongsToDoctor = 
+        editingAppointment.staffId === userStaffId || 
+        editingAppointment.doctorId === userStaffId ||
+        editingAppointment.staff?.id === userStaffId ||
+        editingAppointment.staff?.staffId === userStaffId;
+      
+      if (!belongsToDoctor) {
+        alert('You can only update appointments assigned to you');
+        setShowEditModal(false);
+        return;
+      }
+      
+      // Verify appointment is confirmed and in the future
+      // ✅ DETAILED LOGGING: Log all appointment data for debugging
+      console.group('🔍 [Appointment Update Validation]');
+      console.log('📅 Editing Appointment Object:', editingAppointment);
+      console.log('📅 Raw appointmentDate:', editingAppointment.appointmentDate);
+      console.log('⏰ Raw startTime:', editingAppointment.startTime);
+      console.log('📊 Raw endTime:', editingAppointment.endTime);
+      console.log('✅ Raw status:', editingAppointment.status);
+      
+      // Build the date string for parsing
+      // ✅ FIX: Extract date part only (remove time if present in appointmentDate)
+      const datePart = editingAppointment.appointmentDate.split('T')[0];
+      const dateTimeString = `${datePart}T${editingAppointment.startTime}`;
+      console.log('🔗 Combined dateTime string:', dateTimeString);
+      console.log('📅 Extracted date part:', datePart);
+      
+      const appointmentDate = new Date(dateTimeString);
+      const currentDate = new Date();
+      
+      console.log('📅 Parsed appointmentDate:', appointmentDate);
+      console.log('📅 Parsed appointmentDate ISO:', appointmentDate.toISOString());
+      console.log('📅 Parsed appointmentDate local:', appointmentDate.toLocaleString());
+      console.log('📅 Parsed appointmentDate timestamp:', appointmentDate.getTime());
+      
+      console.log('🕐 Current date:', currentDate);
+      console.log('🕐 Current date ISO:', currentDate.toISOString());
+      console.log('🕐 Current date local:', currentDate.toLocaleString());
+      console.log('🕐 Current date timestamp:', currentDate.getTime());
+      
+      const timeDifference = appointmentDate.getTime() - currentDate.getTime();
+      const hoursDifference = timeDifference / (1000 * 60 * 60);
+      const minutesDifference = timeDifference / (1000 * 60);
+      
+      console.log('⏱️ Time difference (ms):', timeDifference);
+      console.log('⏱️ Time difference (hours):', hoursDifference.toFixed(2));
+      console.log('⏱️ Time difference (minutes):', minutesDifference.toFixed(2));
+      
+      const isConfirmed = editingAppointment.status === 'confirmed';
+      const isFuture = appointmentDate > currentDate;
+      
+      console.log('✅ Is Confirmed:', isConfirmed);
+      console.log('⏭️ Is Future:', isFuture);
+      console.log('🔍 Comparison (appointmentDate > currentDate):', appointmentDate > currentDate);
+      console.log('🔍 Comparison (appointmentDate.getTime() > currentDate.getTime()):', appointmentDate.getTime() > currentDate.getTime());
+      
+      if (!isConfirmed) {
+        console.warn('❌ Validation failed: Appointment is not confirmed');
+        console.groupEnd();
+        alert('Only confirmed appointments can be updated');
+        setShowEditModal(false);
+        return;
+      }
+      
+      if (!isFuture) {
+        console.warn('❌ Validation failed: Appointment is in the past');
+        console.warn('❌ Appointment time:', appointmentDate.toLocaleString());
+        console.warn('❌ Current time:', currentDate.toLocaleString());
+        console.warn('❌ Difference:', `${hoursDifference.toFixed(2)} hours (${minutesDifference.toFixed(2)} minutes)`);
+        console.groupEnd();
+        alert('Cannot update past appointments. Only future appointments can be edited.');
+        setShowEditModal(false);
+        return;
+      }
+      
+      console.log('✅ Validation passed: Appointment is confirmed and in the future');
+      console.groupEnd();
+    }
+    
+    try {
+      // ✅ DETAILED LOGGING: Log update data being sent
+      console.group('📤 [Sending Appointment Update]');
+      console.log('📋 Edit Form Data:', editForm);
+      console.log('📅 Appointment ID:', editingAppointment.id);
+      
+      // Format time to HH:mm:ss if needed
+      const startTimeFormatted = editForm.startTime.includes(':') && editForm.startTime.split(':').length === 2 
+        ? editForm.startTime + ':00' 
+        : editForm.startTime;
+      
+      const updateData = {
+        ...editForm,
+        startTime: startTimeFormatted
+      };
+      
+      console.log('📤 Update Payload:', updateData);
+      console.log('📅 Updated Appointment Date:', updateData.appointmentDate);
+      console.log('⏰ Updated Start Time:', updateData.startTime);
+      console.log('📊 Updated End Time:', updateData.endTime);
+      console.groupEnd();
+      
+      await onUpdateAppointment(editingAppointment.id, updateData);
+      setShowEditModal(false);
+      setEditingAppointment(null);
+      setEditForm({
+        appointmentDate: '',
+        startTime: '',
+        endTime: '',
+        notes: '',
+        serviceId: ''
+      });
+    } catch (error: any) {
+      console.error('Error updating appointment:', error);
+      
+      // ✅ Handle 403 errors gracefully
+      if (error.response?.status === 403) {
+        const errorData = error.response?.data || {};
+        const errorMsg = errorData.error || 'You do not have permission to update this appointment';
+        
+        if (errorMsg.includes('assigned to you') || errorMsg.includes('appointment')) {
+          alert('This appointment belongs to another doctor. You cannot update it.');
+          
+          // Log diagnostic details for debugging
+          if (errorData.details) {
+            console.warn('❌ Update rejected - diagnostic details:', errorData.details);
+          }
+        } else {
+          alert(`Failed to update appointment: ${errorMsg}`);
+        }
+      } else {
+        // Show error to user
+        alert(`Failed to update appointment: ${error.response?.data?.error || error.response?.data?.message || error.message || 'Unknown error'}`);
+      }
+    }
+  };
+
+  const handleCancelClick = (appointmentId: string) => {
+    setAppointmentToCancel(appointmentId);
+    setShowCancelConfirm(true);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!appointmentToCancel) return;
+    
+    // ✅ CRITICAL: Verify appointment ownership before allowing cancel
+    const userStaffId = user.staffId;
+    if (userStaffId) {
+      const appointment = appointments.find((apt: any) => apt.id === appointmentToCancel);
+      
+      if (appointment) {
+        const belongsToDoctor = 
+          appointment.staffId === userStaffId || 
+          appointment.doctorId === userStaffId ||
+          appointment.staff?.id === userStaffId ||
+          appointment.staff?.staffId === userStaffId;
+        
+        if (!belongsToDoctor) {
+          alert('You can only cancel appointments assigned to you');
+          setShowCancelConfirm(false);
+          setAppointmentToCancel(null);
+          return;
+        }
+        
+        // Verify appointment is confirmed
+        if (appointment.status !== 'confirmed') {
+          alert('Only confirmed appointments can be cancelled');
+          setShowCancelConfirm(false);
+          setAppointmentToCancel(null);
+          return;
+        }
+      }
+    }
+    
+    try {
+      await onCancelAppointment(appointmentToCancel);
+      setShowCancelConfirm(false);
+      setAppointmentToCancel(null);
+    } catch (error: any) {
+      // Error handling is done in onCancelAppointment
+      setShowCancelConfirm(false);
+      setAppointmentToCancel(null);
     }
   };
 
@@ -678,38 +937,68 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
               </CardContent>
             </Card>
 
-            {/* Historical Appointments */}
+            {/* Upcoming Appointments */}
             <Card className="medical-card">
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
-                  <History className="h-5 w-5 text-primary" />
-                  <span>Appointment History</span>
+                  <Calendar className="h-5 w-5 text-primary" />
+                  <span>Upcoming Appointments</span>
                 </CardTitle>
                 <CardDescription>
-                  View previously approved and cancelled appointments
+                  Manage your upcoming confirmed appointments
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {(() => {
-                  const historicalAppointments = appointments.filter(apt => 
-                    apt.status === 'confirmed' || apt.status === 'cancelled' || apt.status === 'completed'
-                  );
-                  const filteredHistorical = filterAppointments(historicalAppointments, searchTerm);
-                  const paginatedHistorical = paginateAppointments(filteredHistorical, currentPage, itemsPerPage);
-                  const totalHistoricalPages = getTotalPages(filteredHistorical.length, itemsPerPage);
+                  // Filter for upcoming appointments only: confirmed status and appointment date >= today
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0); // Reset to start of day
+                  
+                  const upcomingAppointments = appointments.filter(apt => {
+                    // Must be confirmed status
+                    if (apt.status !== 'confirmed') return false;
+                    
+                    // Check if appointment date is today or in the future
+                    const appointmentDate = new Date(apt.appointmentDate);
+                    appointmentDate.setHours(0, 0, 0, 0);
+                    
+                    // Also check appointment time if it's today
+                    if (appointmentDate.getTime() === today.getTime()) {
+                      // If it's today, check if the appointment time hasn't passed
+                      // ✅ FIX: Extract date part only (remove time if present in appointmentDate)
+                      const datePart = apt.appointmentDate.split('T')[0];
+                      const appointmentDateTime = new Date(`${datePart}T${apt.startTime}`);
+                      return appointmentDateTime >= new Date();
+                    }
+                    
+                    // If it's a future date, include it
+                    return appointmentDate >= today;
+                  });
+                  
+                  const filteredUpcoming = filterAppointments(upcomingAppointments, searchTerm);
+                  const paginatedUpcoming = paginateAppointments(filteredUpcoming, currentPage, itemsPerPage);
+                  const totalUpcomingPages = getTotalPages(filteredUpcoming.length, itemsPerPage);
 
-                  return filteredHistorical.length === 0 ? (
+                  return filteredUpcoming.length === 0 ? (
                     <div className="text-center py-8">
-                      <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-muted-foreground">
-                        {searchTerm ? 'No historical appointments match your search' : 'No historical appointments found'}
+                        {searchTerm ? 'No upcoming appointments match your search' : 'No upcoming appointments found'}
                       </p>
                     </div>
                   ) : (
                     <>
                       <div className="space-y-4">
-                        {paginatedHistorical
-                          .sort((a, b) => new Date(b.appointmentDate).getTime() - new Date(a.appointmentDate).getTime())
+                        {paginatedUpcoming
+                          .sort((a, b) => {
+                            // Sort by date and time (ascending - earliest first)
+                            // ✅ FIX: Extract date part only (remove time if present in appointmentDate)
+                            const datePartA = a.appointmentDate.split('T')[0];
+                            const datePartB = b.appointmentDate.split('T')[0];
+                            const dateA = new Date(`${datePartA}T${a.startTime}`);
+                            const dateB = new Date(`${datePartB}T${b.startTime}`);
+                            return dateA.getTime() - dateB.getTime();
+                          })
                           .map((appointment) => (
                           <div key={appointment.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
                             <div className="flex items-start justify-between mb-3">
@@ -732,17 +1021,38 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                               </div>
                               <div className="flex flex-col items-end space-y-2">
                                 {getStatusBadge(appointment.status)}
+                                {/* Show Edit and Cancel buttons for all upcoming confirmed appointments */}
+                                <div className="flex space-x-2 mt-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleEditAppointment(appointment)}
+                                    disabled={isProcessing}
+                                  >
+                                    <Eye className="h-3 w-3 mr-1" />
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleCancelClick(appointment.id)}
+                                    disabled={isProcessing}
+                                  >
+                                    <XCircle className="h-3 w-3 mr-1" />
+                                    Cancel
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           </div>
                         ))}
                       </div>
                       
-                      {/* Pagination for Historical */}
-                      {totalHistoricalPages > 1 && (
+                      {/* Pagination for Upcoming */}
+                      {totalUpcomingPages > 1 && (
                         <div className="flex items-center justify-between mt-6 pt-4 border-t">
                           <div className="text-sm text-muted-foreground">
-                            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredHistorical.length)} of {filteredHistorical.length} historical appointments
+                            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredUpcoming.length)} of {filteredUpcoming.length} upcoming appointments
                           </div>
                           <div className="flex items-center space-x-2">
                             <Button
@@ -755,13 +1065,13 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                               Previous
                             </Button>
                             <span className="text-sm">
-                              Page {currentPage} of {totalHistoricalPages}
+                              Page {currentPage} of {totalUpcomingPages}
                             </span>
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalHistoricalPages))}
-                              disabled={currentPage === totalHistoricalPages}
+                              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalUpcomingPages))}
+                              disabled={currentPage === totalUpcomingPages}
                             >
                               Next
                               <ChevronRight className="h-4 w-4" />
@@ -1212,6 +1522,114 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
         existingPatients={patients}
         existingStaff={staffList}
       />
+
+      {/* Edit Appointment Modal */}
+      {showEditModal && editingAppointment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Edit Appointment</CardTitle>
+              <CardDescription>
+                Update appointment details
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="edit-date">Appointment Date</Label>
+                  <Input
+                    id="edit-date"
+                    type="date"
+                    value={editForm.appointmentDate}
+                    onChange={(e) => setEditForm({ ...editForm, appointmentDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-start-time">Start Time</Label>
+                  <Input
+                    id="edit-start-time"
+                    type="time"
+                    value={editForm.startTime}
+                    onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-notes">Notes</Label>
+                  <textarea
+                    id="edit-notes"
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                    className="w-full h-20 px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 resize-none"
+                    placeholder="Optional notes..."
+                  />
+                </div>
+              </div>
+              <div className="flex space-x-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingAppointment(null);
+                    setEditForm({
+                      appointmentDate: '',
+                      startTime: '',
+                      endTime: '',
+                      notes: '',
+                      serviceId: ''
+                    });
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={handleSaveAppointment}
+                  disabled={isProcessing || !editForm.appointmentDate || !editForm.startTime}
+                >
+                  {isProcessing ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Cancel Appointment Confirmation Modal */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Cancel Appointment</CardTitle>
+              <CardDescription>
+                Are you sure you want to cancel this appointment?
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex space-x-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setShowCancelConfirm(false);
+                    setAppointmentToCancel(null);
+                  }}
+                >
+                  No, Keep It
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={handleConfirmCancel}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? 'Cancelling...' : 'Yes, Cancel'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

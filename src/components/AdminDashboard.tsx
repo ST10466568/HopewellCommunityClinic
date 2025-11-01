@@ -255,6 +255,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  // Helper function to filter appointments by date range
+  const filterAppointmentsByDateRange = (appointmentsList: Appointment[]) => {
+    if (!reportDateRange?.startDate || !reportDateRange?.endDate) {
+      return appointmentsList;
+    }
+    return appointmentsList.filter(apt => {
+      const aptDate = new Date(apt.appointmentDate);
+      const startDate = new Date(reportDateRange.startDate);
+      const endDate = new Date(reportDateRange.endDate);
+      endDate.setHours(23, 59, 59, 999); // Include full end date
+      return aptDate >= startDate && aptDate <= endDate;
+    });
+  };
+
   const handleUpdateProfile = async (userId: string, profileData: any) => {
     try {
       await authAPI.updateProfile(userId, profileData);
@@ -407,33 +421,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error updating shift schedule:', error);
       
-      // Check if it's an authentication error
-      if (error && typeof error === 'object' && 'response' in error && 
-          error.response && typeof error.response === 'object' && 
-          'status' in error.response && error.response.status === 401) {
-        console.log('⚠️ Authentication failed - admin may not have proper permissions');
-        console.log('💡 Schedule changes will be saved locally but not persisted to database');
-        
-        // Still update local state for immediate feedback
-        setDoctorShiftSchedule(newShiftSchedule);
-        
-        // Show user-friendly message
-        alert('Schedule updated locally, but could not save to database. Please check admin permissions.');
-        
-        // Close modal after local update
-        setShowDoctorScheduleModal(false);
-        setSelectedDoctor(null);
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to save schedule';
+      
+      // Check if it's an authentication/authorization error
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        console.error('⚠️ Authentication/Authorization failed - admin may not have proper permissions');
+        alert(`Failed to save schedule: ${errorMessage}\n\nPlease check:\n1. Admin has proper permissions\n2. Doctor ID is correct\n3. Backend endpoint is accessible`);
+      } else if (error.response?.status === 404) {
+        console.error('⚠️ Endpoint not found');
+        alert(`Failed to save schedule: Endpoint not found.\n\nPlease verify:\n1. Backend endpoint /Booking/doctor/{doctorId}/shifts exists\n2. HTTP method is PUT\n3. Request payload format is correct`);
       } else {
-        // For other errors, still update local state
-        setDoctorShiftSchedule(newShiftSchedule);
-        
-        // Close modal after local update
-        setShowDoctorScheduleModal(false);
-        setSelectedDoctor(null);
+        console.error('⚠️ Other error occurred:', errorMessage);
+        alert(`Failed to save schedule to database:\n\n${errorMessage}\n\nChanges were not saved. Please try again or contact support.`);
       }
+      
+      // Don't update local state if save failed - user should see the original data
+      // This way they know the save didn't work
     } finally {
       setIsUpdatingSchedule(false);
     }
@@ -627,7 +633,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!editingUser) return;
     
     try {
-      await onUpdateUser(editingUser.id, editUserData);
+      // Include isActive status from editingUser if available
+      const userDataToUpdate = {
+        ...editUserData,
+        isActive: editingUser.isActive !== undefined ? editingUser.isActive : true
+      };
+      
+      await onUpdateUser(editingUser.id, userDataToUpdate);
       setShowEditUserModal(false);
       setEditingUser(null);
       setEditUserData({
@@ -641,8 +653,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         emergencyPhone: '',
         role: ''
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating user:', error);
+      // Show error to user
+      alert(`Failed to update user: ${error.response?.data?.error || error.response?.data?.message || error.message || 'Unknown error'}`);
     }
   };
 
@@ -690,16 +704,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   );
 
   // Filter and pagination logic for user management
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = searchTerm === '' || 
-      user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesRole = selectedRole === 'all' || user.role === selectedRole;
-    
-    return matchesSearch && matchesRole;
-  });
+  const filteredUsers = users
+    .filter(user => {
+      const matchesSearch = searchTerm === '' || 
+        user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesRole = selectedRole === 'all' || user.role === selectedRole;
+      
+      return matchesSearch && matchesRole;
+    })
+    .sort((a, b) => {
+      // Sort by createdAt descending (newest first)
+      const dateA = new Date(a.createdAt || (a as any).created_at || (a as any).dateCreated || 0);
+      const dateB = new Date(b.createdAt || (b as any).created_at || (b as any).dateCreated || 0);
+      return dateB.getTime() - dateA.getTime();
+    });
 
   const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -985,7 +1006,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <option value="all">All Roles</option>
                         <option value="admin">Admin</option>
                         <option value="doctor">Doctor</option>
-                        <option value="nurse">Nurse</option>
                         <option value="patient">Patient</option>
                       </select>
                     </div>
@@ -1042,7 +1062,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 variant={
                                   user.role === 'admin' ? 'destructive' : 
                                   user.role === 'doctor' ? 'default' : 
-                                  user.role === 'nurse' ? 'secondary' : 
                                   'outline'
                                 }
                                 className={
@@ -1111,7 +1130,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               >
                                 <option value="patient">Patient</option>
                                 <option value="doctor">Doctor</option>
-                                <option value="nurse">Nurse</option>
                               </select>
                             )}
                           </div>
@@ -1178,7 +1196,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <Shield className="h-4 w-4 text-blue-600" />
                             <div>
                               <p className="text-sm font-medium">Total Staff</p>
-                              <p className="text-2xl font-bold">{users.filter(u => ['admin', 'doctor', 'nurse'].includes(u.role)).length}</p>
+                              <p className="text-2xl font-bold">{users.filter(u => ['admin', 'doctor'].includes(u.role)).length}</p>
                             </div>
                           </div>
                         </CardContent>
@@ -1555,7 +1573,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                          const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                           exportToCSV(exportData, 'appointment-statistics');
                         }}
                       >
@@ -1566,7 +1585,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                          const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                           exportToJSON(exportData, 'appointment-statistics');
                         }}
                       >
@@ -1577,7 +1597,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                          const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                           exportToPDF(exportData, 'appointment-statistics');
                         }}
                       >
@@ -1588,30 +1609,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Total Appointments</span>
-                      <span className="font-medium">{appointments.length}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Confirmed</span>
-                      <span className="font-medium text-green-600">
-                        {appointments.filter(apt => apt.status === 'confirmed').length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Pending</span>
-                      <span className="font-medium text-yellow-600">
-                        {appointments.filter(apt => apt.status === 'pending').length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Cancelled</span>
-                      <span className="font-medium text-red-600">
-                        {appointments.filter(apt => apt.status === 'cancelled').length}
-                      </span>
-                    </div>
-                  </div>
+                  {(() => {
+                    // Filter appointments by date range if specified
+                    let filteredAppointments = appointments;
+                    if (reportDateRange?.startDate && reportDateRange?.endDate) {
+                      filteredAppointments = appointments.filter(apt => {
+                        const aptDate = new Date(apt.appointmentDate);
+                        const startDate = new Date(reportDateRange.startDate);
+                        const endDate = new Date(reportDateRange.endDate);
+                        endDate.setHours(23, 59, 59, 999); // Include full end date
+                        return aptDate >= startDate && aptDate <= endDate;
+                      });
+                    }
+                    
+                    return (
+                      <div className="space-y-4">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">Total Appointments</span>
+                          <span className="font-medium">{filteredAppointments.length}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">Confirmed</span>
+                          <span className="font-medium text-green-600">
+                            {filteredAppointments.filter(apt => apt.status === 'confirmed').length}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">Pending</span>
+                          <span className="font-medium text-yellow-600">
+                            {filteredAppointments.filter(apt => apt.status === 'pending').length}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">Cancelled</span>
+                          <span className="font-medium text-red-600">
+                            {filteredAppointments.filter(apt => apt.status === 'cancelled').length}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
 
@@ -1625,7 +1662,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <span>Service Usage</span>
                       </CardTitle>
                       <CardDescription>
-                        Most popular services
+                        {reportDateRange?.startDate && reportDateRange?.endDate 
+                          ? `Most popular services (${reportDateRange.startDate} to ${reportDateRange.endDate})`
+                          : 'Most popular services'}
                       </CardDescription>
                     </div>
                     <div className="flex gap-2">
@@ -1633,7 +1672,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                          const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                           exportToCSV(exportData, 'service-usage');
                         }}
                       >
@@ -1644,7 +1684,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                          const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                           exportToJSON(exportData, 'service-usage');
                         }}
                       >
@@ -1655,7 +1696,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          const exportData = prepareExportData(appointments, services, reportDateRange);
+                          const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                          const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                           exportToPDF(exportData, 'service-usage');
                         }}
                       >
@@ -1668,7 +1710,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <CardContent>
                   <div className="space-y-4">
                     {services.map((service) => {
-                      const usageCount = appointments.filter(apt => apt.service.id === service.id).length;
+                      // Filter appointments by date range if specified
+                      let filteredAppointments = appointments.filter(apt => apt.service.id === service.id);
+                      if (reportDateRange?.startDate && reportDateRange?.endDate) {
+                        filteredAppointments = filteredAppointments.filter(apt => {
+                          const aptDate = new Date(apt.appointmentDate);
+                          const startDate = new Date(reportDateRange.startDate);
+                          const endDate = new Date(reportDateRange.endDate);
+                          endDate.setHours(23, 59, 59, 999);
+                          return aptDate >= startDate && aptDate <= endDate;
+                        });
+                      }
+                      const usageCount = filteredAppointments.length;
                       return (
                         <div key={service.id} className="flex justify-between">
                           <span className="text-sm text-muted-foreground">{service.name}</span>
@@ -1699,7 +1752,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const exportData = prepareExportData(appointments, services, reportDateRange);
+                        const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                        const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                         exportToCSV(exportData, 'revenue-report');
                       }}
                     >
@@ -1710,7 +1764,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const exportData = prepareExportData(appointments, services, reportDateRange);
+                        const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                        const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                         exportToJSON(exportData, 'revenue-report');
                       }}
                     >
@@ -1721,7 +1776,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const exportData = prepareExportData(appointments, services, reportDateRange);
+                        const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                        const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                         exportToPDF(exportData, 'revenue-report');
                       }}
                     >
@@ -1733,30 +1789,58 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Total Revenue</span>
-                    <span className="font-medium text-green-600">
-                      ${appointments
-                        .filter(apt => apt.status === 'confirmed' || apt.status === 'completed')
-                        .reduce((total, apt) => total + (apt.service.price || 0), 0)
-                        .toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">This Month</span>
-                    <span className="font-medium">
-                      ${appointments
-                        .filter(apt => {
-                          const aptDate = new Date(apt.appointmentDate);
-                          const now = new Date();
-                          return aptDate.getMonth() === now.getMonth() && 
-                                 aptDate.getFullYear() === now.getFullYear() &&
-                                 (apt.status === 'confirmed' || apt.status === 'completed');
-                        })
-                        .reduce((total, apt) => total + (apt.service.price || 0), 0)
-                        .toFixed(2)}
-                    </span>
-                  </div>
+                  {(() => {
+                    // Filter appointments by date range if specified
+                    let filteredAppointments = appointments;
+                    if (reportDateRange?.startDate && reportDateRange?.endDate) {
+                      filteredAppointments = appointments.filter(apt => {
+                        const aptDate = new Date(apt.appointmentDate);
+                        const startDate = new Date(reportDateRange.startDate);
+                        const endDate = new Date(reportDateRange.endDate);
+                        endDate.setHours(23, 59, 59, 999);
+                        return aptDate >= startDate && aptDate <= endDate;
+                      });
+                    }
+                    
+                    const revenueAppointments = filteredAppointments.filter(
+                      apt => apt.status === 'confirmed' || apt.status === 'completed'
+                    );
+                    const totalRevenue = revenueAppointments.reduce(
+                      (total, apt) => total + (apt.service?.price || 0), 0
+                    );
+                    
+                    return (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-muted-foreground">
+                            {reportDateRange?.startDate && reportDateRange?.endDate 
+                              ? 'Revenue (Filtered)' 
+                              : 'Total Revenue'}
+                          </span>
+                          <span className="font-medium text-green-600">
+                            ${totalRevenue.toFixed(2)}
+                          </span>
+                        </div>
+                        {!reportDateRange?.startDate && (
+                          <div className="flex justify-between">
+                            <span className="text-sm text-muted-foreground">This Month</span>
+                            <span className="font-medium">
+                              ${appointments
+                                .filter(apt => {
+                                  const aptDate = new Date(apt.appointmentDate);
+                                  const now = new Date();
+                                  return aptDate.getMonth() === now.getMonth() && 
+                                         aptDate.getFullYear() === now.getFullYear() &&
+                                         (apt.status === 'confirmed' || apt.status === 'completed');
+                                })
+                                .reduce((total, apt) => total + (apt.service?.price || 0), 0)
+                                .toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -1774,7 +1858,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Button
                     variant="default"
                     onClick={() => {
-                      const exportData = prepareExportData(appointments, services, reportDateRange);
+                      const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                      const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                       exportToCSV(exportData, 'complete-analytics-report');
                     }}
                   >
@@ -1784,7 +1869,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Button
                     variant="default"
                     onClick={() => {
-                      const exportData = prepareExportData(appointments, services, reportDateRange);
+                      const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                      const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                       exportToJSON(exportData, 'complete-analytics-report');
                     }}
                   >
@@ -1794,7 +1880,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Button
                     variant="default"
                     onClick={() => {
-                      const exportData = prepareExportData(appointments, services, reportDateRange);
+                      const filteredAppointments = filterAppointmentsByDateRange(appointments);
+                      const exportData = prepareExportData(filteredAppointments, services, reportDateRange);
                       exportToPDF(exportData, 'complete-analytics-report');
                     }}
                   >
@@ -1929,7 +2016,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     required
                   >
                     <option value="doctor">Doctor</option>
-                    <option value="nurse">Nurse</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>
@@ -2486,7 +2572,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   >
                     <option value="patient">Patient</option>
                     <option value="doctor">Doctor</option>
-                    <option value="nurse">Nurse</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>

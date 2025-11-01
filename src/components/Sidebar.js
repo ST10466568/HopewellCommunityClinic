@@ -19,13 +19,6 @@ const Sidebar = ({ isOpen, onClose, user, role }) => {
           { path: '/dashboard/doctor/patients', label: 'Patients', icon: '👥' },
           { path: '/dashboard/doctor/availability', label: 'Availability', icon: '⏰' },
         ];
-      case 'nurse':
-        return [
-          { path: '/dashboard/nurse', label: 'Dashboard', icon: '🏠' },
-          { path: '/dashboard/nurse/appointments', label: 'All Appointments', icon: '📅' },
-          { path: '/dashboard/nurse/patients', label: 'Patients', icon: '👥' },
-          { path: '/dashboard/nurse/walk-ins', label: 'Walk-ins', icon: '🚶' },
-        ];
       case 'admin':
         return [
           { path: '/dashboard/admin', label: 'Dashboard', icon: '🏠' },

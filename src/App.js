@@ -6,7 +6,6 @@ import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import PatientDashboard from './pages/PatientDashboard';
 import DoctorDashboard from './pages/DoctorDashboard';
-import NurseDashboard from './pages/NurseDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import LoadingSpinner from './components/LoadingSpinner';
 
@@ -53,8 +52,6 @@ const getDashboardPath = (role) => {
       return '/patient-dashboard';
     case 'doctor':
       return '/doctor-dashboard';
-    case 'nurse':
-      return '/nurse-dashboard';
     case 'admin':
       return '/admin-dashboard';
     default:
@@ -112,14 +109,6 @@ const AppRoutes = () => {
         element: React.createElement(ProtectedRoute, { allowedRoles: ['doctor'] },
           React.createElement(Layout, null,
             React.createElement(DoctorDashboard)
-          )
-        )
-      }),
-      React.createElement(Route, {
-        path: '/nurse-dashboard',
-        element: React.createElement(ProtectedRoute, { allowedRoles: ['nurse'] },
-          React.createElement(Layout, null,
-            React.createElement(NurseDashboard)
           )
         )
       }),

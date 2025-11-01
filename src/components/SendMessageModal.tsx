@@ -29,7 +29,7 @@ interface SendMessageModalProps {
   isOpen: boolean;
   onClose: () => void;
   senderId: string;
-  senderRole: 'doctor' | 'nurse' | 'admin';
+  senderRole: 'doctor' | 'admin';
   senderName: string;
   existingPatients?: Patient[];
   existingStaff?: Staff[];

@@ -51,7 +51,7 @@ interface Message {
 
 interface NotificationCenterProps {
   userId: string;
-  userRole: 'patient' | 'doctor' | 'nurse' | 'admin';
+  userRole: 'patient' | 'doctor' | 'admin';
   patientId?: string;
   staffId?: string;
   isOpen: boolean;
@@ -86,7 +86,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
       
       if (userRole === 'patient' && patientId) {
         data = await notificationsAPI.getPatientNotifications(patientId);
-      } else if ((userRole === 'doctor' || userRole === 'nurse') && staffId) {
+      } else if (userRole === 'doctor' && staffId) {
         data = await notificationsAPI.getStaffNotifications(staffId);
       } else if (userRole === 'admin') {
         data = await notificationsAPI.getAllNotifications();

@@ -7,7 +7,6 @@ import PatientDashboard from './components/PatientDashboard';
 import DoctorDashboard from './components/DoctorDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import EmailSettingsPage from './pages/admin/EmailSettings';
-import NurseDashboard from './components/NurseDashboard';
 import LoadingSpinner from './components/LoadingSpinner';
 import { usePushNotifications } from './hooks/usePushNotifications';
 
@@ -191,7 +190,9 @@ const DashboardWrapper: React.FC<{
         appointmentDate: updateData.appointmentDate,
         startTime: startTimeFormatted,
         endTime: endTimeString,
-        notes: updateData.notes || ''
+        notes: updateData.notes || '',
+        serviceId: updateData.serviceId,
+        staffId: updateData.staffId || null
       });
 
       // Refresh appointments
@@ -316,19 +317,82 @@ const DoctorDashboardWrapper: React.FC<{
         console.error('❌ Error fetching staff record:', staffError);
       }
 
-      // Get all appointments
-      try {
-        const appointmentsData = await appointmentsAPI.getAll();
-        // Sort appointments by created date (newest first)
-        const sortedAppointments = appointmentsData.sort((a: any, b: any) => {
-          const dateA = new Date(a.createdAt || a.appointmentDate);
-          const dateB = new Date(b.createdAt || b.appointmentDate);
-          return dateB.getTime() - dateA.getTime();
-        });
-        setAppointments(sortedAppointments);
-      } catch (appointmentsError) {
-        console.log('No appointments endpoint available yet');
+      // Get appointments using doctor-specific endpoint
+      // ✅ RECOMMENDED: Use doctor-specific endpoint instead of general endpoint
+      const currentStaffId = staffId || user.staffId;
+      
+      if (!currentStaffId) {
+        console.error('❌ StaffId not found. Cannot load appointments.');
+        setError('Staff ID not found. Please contact administrator.');
         setAppointments([]);
+      } else {
+        try {
+          // ✅ Use doctor-specific endpoint for better security and filtering
+          console.log('📋 Loading appointments for doctor:', currentStaffId);
+          const appointmentsData = await doctorAPI.getAllAppointments(currentStaffId);
+          
+          // ✅ Client-side filtering as extra safety measure
+          const doctorAppointments = Array.isArray(appointmentsData) ? appointmentsData.filter((apt: any) => {
+            // Verify appointment belongs to this doctor
+            const belongsToDoctor = 
+              apt.staffId === currentStaffId || 
+              apt.doctorId === currentStaffId ||
+              apt.staff?.id === currentStaffId ||
+              apt.staff?.staffId === currentStaffId;
+            
+            if (!belongsToDoctor) {
+              console.warn(`⚠️ Filtering out appointment ${apt.id} - doesn't belong to doctor ${currentStaffId}`);
+              return false;
+            }
+            
+            return true;
+          }) : [];
+          
+          // Sort appointments by created date (newest first)
+          const sortedAppointments = doctorAppointments.sort((a: any, b: any) => {
+            const dateA = new Date(a.createdAt || a.appointmentDate);
+            const dateB = new Date(b.createdAt || b.appointmentDate);
+            return dateB.getTime() - dateA.getTime();
+          });
+          
+          console.log(`✅ Loaded ${sortedAppointments.length} appointments for doctor`);
+          setAppointments(sortedAppointments);
+        } catch (appointmentsError: any) {
+          console.error('❌ Error loading appointments:', appointmentsError);
+          // If doctor-specific endpoint fails, fall back to general endpoint with client-side filtering
+          if (currentStaffId) {
+            try {
+              console.log('⚠️ Doctor-specific endpoint failed, trying general endpoint with filtering...');
+              const allAppointments = await appointmentsAPI.getAll();
+              
+              // ✅ Client-side filtering as fallback safety measure
+              const filteredAppointments = Array.isArray(allAppointments) ? allAppointments.filter((apt: any) => {
+                const belongsToDoctor = 
+                  apt.staffId === currentStaffId || 
+                  apt.doctorId === currentStaffId ||
+                  apt.staff?.id === currentStaffId ||
+                  apt.staff?.staffId === currentStaffId;
+                
+                return belongsToDoctor;
+              }) : [];
+              
+              const sortedAppointments = filteredAppointments.sort((a: any, b: any) => {
+                const dateA = new Date(a.createdAt || a.appointmentDate);
+                const dateB = new Date(b.createdAt || b.appointmentDate);
+                return dateB.getTime() - dateA.getTime();
+              });
+              
+              setAppointments(sortedAppointments);
+              console.log(`✅ Loaded ${sortedAppointments.length} appointments using fallback method`);
+            } catch (fallbackError) {
+              console.error('❌ Fallback endpoint also failed:', fallbackError);
+              setAppointments([]);
+              setError('Failed to load appointments. Please try again.');
+            }
+          } else {
+            setAppointments([]);
+          }
+        }
       }
 
       // Get all patients
@@ -410,6 +474,257 @@ const DoctorDashboardWrapper: React.FC<{
     }
   };
 
+  const handleCancelAppointment = async (appointmentId: string) => {
+    try {
+      setIsProcessing(true);
+      setError('');
+      
+      const currentStaffId = staffId || user.staffId;
+      
+      // ✅ CRITICAL: Verify appointment ownership before allowing cancel
+      if (currentStaffId) {
+        const appointment = appointments.find((apt: any) => apt.id === appointmentId);
+        
+        if (appointment) {
+          const belongsToDoctor = 
+            appointment.staffId === currentStaffId || 
+            appointment.doctorId === currentStaffId ||
+            appointment.staff?.id === currentStaffId ||
+            appointment.staff?.staffId === currentStaffId;
+          
+          if (!belongsToDoctor) {
+            const errorMsg = 'You can only cancel appointments assigned to you';
+            setError(errorMsg);
+            alert(`Failed to cancel appointment: ${errorMsg}`);
+            return;
+          }
+          
+          // Verify appointment is confirmed and in the future (optional - can allow cancelling past appointments)
+          const appointmentDate = new Date(`${appointment.appointmentDate}T${appointment.startTime}`);
+          const isConfirmed = appointment.status === 'confirmed';
+          const isFuture = appointmentDate > new Date();
+          
+          if (!isConfirmed) {
+            const errorMsg = 'Only confirmed appointments can be cancelled';
+            setError(errorMsg);
+            alert(`Failed to cancel appointment: ${errorMsg}`);
+            return;
+          }
+        }
+      }
+      
+      await appointmentsAPI.updateStatus(appointmentId, 'cancelled');
+      await loadDashboardData(); // Refresh data
+    } catch (error: any) {
+      console.error('Error canceling appointment:', error);
+      
+      // ✅ Handle 403 errors gracefully
+      if (error.response?.status === 403) {
+        const errorData = error.response?.data || {};
+        const errorMsg = errorData.error || 'You do not have permission to cancel this appointment';
+        
+        if (errorMsg.includes('assigned to you') || errorMsg.includes('appointment')) {
+          const userFriendlyMsg = 'This appointment belongs to another doctor. You cannot cancel it.';
+          setError(userFriendlyMsg);
+          alert(`Failed to cancel appointment: ${userFriendlyMsg}`);
+          
+          // Log diagnostic details for debugging
+          if (errorData.details) {
+            console.warn('❌ Cancel rejected - diagnostic details:', errorData.details);
+          }
+          
+          // Remove appointment from UI if it doesn't belong to this doctor
+          setAppointments((prev: any[]) => prev.filter((apt: any) => apt.id !== appointmentId));
+        } else {
+          setError(errorMsg);
+          alert(`Failed to cancel appointment: ${errorMsg}`);
+        }
+      } else {
+        setError(error.response?.data?.error || error.message || 'Failed to cancel appointment');
+        alert(`Failed to cancel appointment: ${error.response?.data?.error || error.message || 'Unknown error'}`);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleUpdateAppointment = async (appointmentId: string, updateData: any) => {
+    try {
+      setIsProcessing(true);
+      setError('');
+      
+      const currentStaffId = staffId || user.staffId;
+      
+      // ✅ CRITICAL: Verify appointment ownership before allowing update
+      if (currentStaffId) {
+        try {
+          // Find the appointment in our local data to verify ownership
+          const appointment = appointments.find((apt: any) => apt.id === appointmentId);
+          
+          if (appointment) {
+            // Verify appointment belongs to current doctor
+            const belongsToDoctor = 
+              appointment.staffId === currentStaffId || 
+              appointment.doctorId === currentStaffId ||
+              appointment.staff?.id === currentStaffId ||
+              appointment.staff?.staffId === currentStaffId;
+            
+            if (!belongsToDoctor) {
+              const errorMsg = 'You can only update appointments assigned to you';
+              setError(errorMsg);
+              alert(`Failed to update appointment: ${errorMsg}`);
+              console.warn('❌ Update rejected - appointment does not belong to doctor:', {
+                appointmentId,
+                doctorStaffId: currentStaffId,
+                appointmentStaffId: appointment.staffId,
+                appointmentDoctorId: appointment.doctorId
+              });
+              return;
+            }
+            
+            // Verify appointment is confirmed and in the future
+            // ✅ DETAILED LOGGING: Log all appointment data for debugging
+            console.group('🔍 [Appointment Update Validation - App.tsx]');
+            console.log('📅 Appointment Object:', appointment);
+            console.log('📅 Raw appointmentDate:', appointment.appointmentDate);
+            console.log('⏰ Raw startTime:', appointment.startTime);
+            console.log('📊 Raw endTime:', appointment.endTime);
+            console.log('✅ Raw status:', appointment.status);
+            
+            // Build the date string for parsing
+            // ✅ FIX: Extract date part only (remove time if present in appointmentDate)
+            const datePart = appointment.appointmentDate.split('T')[0];
+            const dateTimeString = `${datePart}T${appointment.startTime}`;
+            console.log('🔗 Combined dateTime string:', dateTimeString);
+            console.log('📅 Extracted date part:', datePart);
+            
+            const appointmentDate = new Date(dateTimeString);
+            const currentDate = new Date();
+            
+            console.log('📅 Parsed appointmentDate:', appointmentDate);
+            console.log('📅 Parsed appointmentDate ISO:', appointmentDate.toISOString());
+            console.log('📅 Parsed appointmentDate local:', appointmentDate.toLocaleString());
+            console.log('📅 Parsed appointmentDate timestamp:', appointmentDate.getTime());
+            
+            console.log('🕐 Current date:', currentDate);
+            console.log('🕐 Current date ISO:', currentDate.toISOString());
+            console.log('🕐 Current date local:', currentDate.toLocaleString());
+            console.log('🕐 Current date timestamp:', currentDate.getTime());
+            
+            const timeDifference = appointmentDate.getTime() - currentDate.getTime();
+            const hoursDifference = timeDifference / (1000 * 60 * 60);
+            const minutesDifference = timeDifference / (1000 * 60);
+            
+            console.log('⏱️ Time difference (ms):', timeDifference);
+            console.log('⏱️ Time difference (hours):', hoursDifference.toFixed(2));
+            console.log('⏱️ Time difference (minutes):', minutesDifference.toFixed(2));
+            
+            const isConfirmed = appointment.status === 'confirmed';
+            const isFuture = appointmentDate > currentDate;
+            
+            console.log('✅ Is Confirmed:', isConfirmed);
+            console.log('⏭️ Is Future:', isFuture);
+            console.log('🔍 Comparison (appointmentDate > currentDate):', appointmentDate > currentDate);
+            console.log('🔍 Comparison (appointmentDate.getTime() > currentDate.getTime()):', appointmentDate.getTime() > currentDate.getTime());
+            
+            if (!isConfirmed) {
+              console.warn('❌ Validation failed: Appointment is not confirmed');
+              console.groupEnd();
+              const errorMsg = 'Only confirmed appointments can be updated';
+              setError(errorMsg);
+              alert(`Failed to update appointment: ${errorMsg}`);
+              return;
+            }
+            
+            if (!isFuture) {
+              console.warn('❌ Validation failed: Appointment is in the past');
+              console.warn('❌ Appointment time:', appointmentDate.toLocaleString());
+              console.warn('❌ Current time:', currentDate.toLocaleString());
+              console.warn('❌ Difference:', `${hoursDifference.toFixed(2)} hours (${minutesDifference.toFixed(2)} minutes)`);
+              console.groupEnd();
+              const errorMsg = 'Cannot update past appointments. Only future appointments can be edited.';
+              setError(errorMsg);
+              alert(`Failed to update appointment: ${errorMsg}`);
+              return;
+            }
+            
+            console.log('✅ Validation passed: Appointment is confirmed and in the future');
+            console.groupEnd();
+          }
+        } catch (verifyError) {
+          console.warn('⚠️ Could not verify appointment ownership, proceeding with update (backend will validate)');
+        }
+      }
+      
+      // Calculate end time based on service duration if serviceId is provided
+      let endTimeString = updateData.endTime;
+      if (updateData.serviceId) {
+        const servicesData = await servicesAPI.getAll();
+        const selectedService = servicesData.find((s: any) => s.id === updateData.serviceId);
+        
+        if (selectedService && updateData.startTime) {
+          const startTimeFormatted = updateData.startTime.includes(':') && updateData.startTime.split(':').length === 2 
+            ? updateData.startTime + ':00' 
+            : updateData.startTime;
+          const startTime = new Date(`2000-01-01T${startTimeFormatted}`);
+          const endTime = new Date(startTime.getTime() + (selectedService.durationMinutes || 30) * 60000);
+          endTimeString = endTime.toTimeString().slice(0, 8);
+        }
+      }
+      
+      // Ensure startTime is in HH:mm:ss format
+      const startTimeFormatted = updateData.startTime.includes(':') && updateData.startTime.split(':').length === 2 
+        ? updateData.startTime + ':00' 
+        : updateData.startTime;
+      
+      const updatePayload = {
+        appointmentDate: updateData.appointmentDate,
+        startTime: startTimeFormatted,
+        endTime: endTimeString,
+        notes: updateData.notes || '',
+        ...(updateData.serviceId && { serviceId: updateData.serviceId }),
+        ...(updateData.staffId && { staffId: updateData.staffId })
+      };
+      
+      console.log('Doctor updating appointment with payload:', updatePayload);
+      await appointmentsAPI.update(appointmentId, updatePayload);
+      
+      await loadDashboardData(); // Refresh data
+      alert('Appointment updated successfully!');
+    } catch (error: any) {
+      console.error('Error updating appointment:', error);
+      
+      // ✅ Handle 403 errors gracefully with helpful messages
+      if (error.response?.status === 403) {
+        const errorData = error.response?.data || {};
+        const errorMsg = errorData.error || 'You do not have permission to update this appointment';
+        
+        if (errorMsg.includes('assigned to you') || errorMsg.includes('appointment')) {
+          const userFriendlyMsg = 'This appointment belongs to another doctor. You cannot update it.';
+          setError(userFriendlyMsg);
+          alert(`Failed to update appointment: ${userFriendlyMsg}`);
+          
+          // Log diagnostic details for debugging
+          if (errorData.details) {
+            console.warn('❌ Update rejected - diagnostic details:', errorData.details);
+          }
+          
+          // Remove appointment from UI if it doesn't belong to this doctor
+          setAppointments((prev: any[]) => prev.filter((apt: any) => apt.id !== appointmentId));
+        } else {
+          setError(errorMsg);
+          alert(`Failed to update appointment: ${errorMsg}`);
+        }
+      } else {
+        const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to update appointment';
+        setError(errorMessage);
+        alert(`Failed to update appointment: ${errorMessage}`);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleUpdateShiftSchedule = async (shiftData: any[]) => {
     try {
       setIsProcessing(true);
@@ -420,24 +735,51 @@ const DoctorDashboardWrapper: React.FC<{
         throw new Error('No staff ID available');
       }
       
-      console.log('Updating shift schedule for staff ID:', currentStaffId);
-      console.log('Shift data:', shiftData);
+      // ✅ DETAILED LOGGING: Log all update details
+      console.group('🔄 [Shift Schedule Update]');
+      console.log('👤 Staff ID:', currentStaffId);
+      console.log('📅 Shift Data:', shiftData);
+      console.log('📊 Shift Data Length:', shiftData?.length);
+      console.log('📦 Request Payload:', { shifts: shiftData });
       
-      // Try to call the API, but don't fail if it doesn't exist yet
+      // ✅ FIX: Actually save to database, don't just update local state
       try {
-        await doctorAPI.updateShiftSchedule(currentStaffId, shiftData);
-        console.log('✅ Shift schedule updated successfully via API');
-      } catch (apiError) {
-        console.log('⚠️ API update failed, storing locally:', apiError);
-        // If API fails, just store locally for now
+        console.log('📤 Sending update request to API...');
+        const response = await doctorAPI.updateShiftSchedule(currentStaffId, shiftData);
+        console.log('✅ API Response:', response);
+        console.log('✅ Shift schedule updated successfully in database');
+        
+        // Only update local state if API call was successful
+        setShiftSchedule(shiftData);
+        console.log('✅ Local state updated');
+        
+        // Show success message
+        alert('Shift schedule updated successfully!');
+        console.groupEnd();
+        return;
+      } catch (apiError: any) {
+        console.error('❌ API update failed:', apiError);
+        console.error('📊 Error Status:', apiError.response?.status);
+        console.error('📊 Error Data:', apiError.response?.data);
+        console.error('📊 Error Message:', apiError.message);
+        console.groupEnd();
+        
+        // Re-throw the error so it's handled by the outer catch
+        const errorMessage = apiError.response?.data?.error || 
+                            apiError.response?.data?.message || 
+                            apiError.message || 
+                            'Failed to update shift schedule in database';
+        throw new Error(errorMessage);
       }
-      
-      // Update local state only if API call was successful
-      setShiftSchedule(shiftData);
-      console.log('✅ Shift schedule updated locally');
     } catch (error: any) {
-      console.error('Error updating shift schedule:', error);
-      setError(error.response?.data?.error || error.message || 'Failed to update shift schedule');
+      console.error('❌ Error updating shift schedule:', error);
+      const errorMessage = error.response?.data?.error || 
+                          error.response?.data?.message || 
+                          error.message || 
+                          'Failed to update shift schedule';
+      setError(errorMessage);
+      alert(`Failed to update shift schedule: ${errorMessage}`);
+      throw error; // Re-throw to prevent silent failures
     } finally {
       setIsProcessing(false);
     }
@@ -478,153 +820,13 @@ const DoctorDashboardWrapper: React.FC<{
     error,
     onApproveAppointment: handleApproveAppointment,
     onRejectAppointment: handleRejectAppointment,
+    onCancelAppointment: handleCancelAppointment,
+    onUpdateAppointment: handleUpdateAppointment,
     onUpdateShiftSchedule: handleUpdateShiftSchedule,
     onViewPatientDetails: handleViewPatientDetails
   });
 };
 
-// Nurse Dashboard wrapper component that handles nurse-specific data loading
-const NurseDashboardWrapper: React.FC<{ 
-  children: (props: any) => React.ReactNode;
-  user: any;
-}> = ({ children, user }) => {
-  const [appointments, setAppointments] = React.useState<any[]>([]);
-  const [services, setServices] = React.useState<any[]>([]);
-  const [doctors, setDoctors] = React.useState<any[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [isProcessing, setIsProcessing] = React.useState(false);
-  const [error, setError] = React.useState('');
-
-  const loadDashboardData = async () => {
-    try {
-      setIsLoading(true);
-      setError('');
-
-      // Load appointments
-      try {
-        const appointmentsData = await appointmentsAPI.getAll();
-        // Sort appointments by created date (newest first)
-        const sortedAppointments = appointmentsData.sort((a: any, b: any) => {
-          const dateA = new Date(a.createdAt || a.appointmentDate);
-          const dateB = new Date(b.createdAt || b.appointmentDate);
-          return dateB.getTime() - dateA.getTime();
-        });
-        setAppointments(sortedAppointments);
-      } catch (appointmentsError) {
-        console.log('No appointments endpoint available yet');
-        setAppointments([]);
-      }
-
-      // Load services
-      try {
-        const servicesData = await servicesAPI.getAll();
-        setServices(servicesData);
-      } catch (servicesError) {
-        console.log('No services endpoint available yet');
-        setServices([]);
-      }
-
-      // Load doctors (staff with doctor role)
-      try {
-        const staffData = await staffAPI.getAll();
-        const doctorsData = staffData.filter((staff: any) => staff.role === 'doctor');
-        setDoctors(doctorsData);
-      } catch (staffError) {
-        console.log('No staff endpoint available yet');
-        setDoctors([]);
-      }
-    } catch (error: any) {
-      console.error('Error loading nurse dashboard data:', error);
-      setError(error.response?.data?.error || error.message || 'Failed to load dashboard data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  React.useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-  const handleBookWalkInAppointment = async (appointmentData: any) => {
-    try {
-      setIsProcessing(true);
-      setError('');
-      
-      // Create a walk-in appointment with immediate scheduling
-      const walkInAppointment = {
-        ...appointmentData,
-        appointmentDate: new Date().toISOString().split('T')[0], // Today
-        startTime: new Date().toTimeString().slice(0, 5), // Current time
-        status: 'walkin',
-        notes: `Walk-in appointment: ${appointmentData.notes || 'No additional notes'}`
-      };
-
-      await appointmentsAPI.create(walkInAppointment);
-      await loadDashboardData(); // Refresh data
-    } catch (error: any) {
-      console.error('Error booking walk-in appointment:', error);
-      setError(error.response?.data?.error || error.message || 'Failed to book walk-in appointment');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleApproveAppointmentForDoctor = async (appointmentId: string, doctorId: string) => {
-    try {
-      setIsProcessing(true);
-      setError('');
-      
-      // Update appointment with doctor assignment and approval
-      await appointmentsAPI.update(appointmentId, {
-        staffId: doctorId,
-        status: 'confirmed'
-      });
-      
-      await loadDashboardData(); // Refresh data
-    } catch (error: any) {
-      console.error('Error approving appointment for doctor:', error);
-      setError(error.response?.data?.error || error.message || 'Failed to approve appointment');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleRejectAppointment = async (appointmentId: string, reason: string) => {
-    try {
-      setIsProcessing(true);
-      setError('');
-      
-      await appointmentsAPI.update(appointmentId, {
-        status: 'cancelled',
-        notes: `Rejected by nurse: ${reason}`
-      });
-      
-      await loadDashboardData(); // Refresh data
-    } catch (error: any) {
-      console.error('Error rejecting appointment:', error);
-      setError(error.response?.data?.error || error.message || 'Failed to reject appointment');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return children({
-    user,
-    appointments,
-    services,
-    doctors,
-    isLoading,
-    isProcessing,
-    error,
-    onBookWalkInAppointment: handleBookWalkInAppointment,
-    onApproveAppointmentForDoctor: handleApproveAppointmentForDoctor,
-    onRejectAppointment: handleRejectAppointment,
-    onLogout: () => {
-      localStorage.removeItem('token');
-      window.location.href = '/auth';
-    }
-  });
-};
 
 // Admin Dashboard wrapper component that handles admin-specific data loading
 const AdminDashboardWrapper: React.FC<{ 
@@ -704,33 +906,58 @@ const AdminDashboardWrapper: React.FC<{
         }
       }
 
+      // Get all users from admin endpoint to get isActive status for all users
+      let usersWithStatus: any[] = [];
+      try {
+        const usersData = await adminAPI.getUsers();
+        console.log('👥 Admin users data (for status):', usersData);
+        usersWithStatus = Array.isArray(usersData) ? usersData : [];
+      } catch (usersError) {
+        console.log('⚠️ Could not load user status data, will default to patient data');
+      }
+
       // Get all patients
       try {
         const patientsData = await patientsAPI.getAll();
         console.log('👥 Patients data received:', patientsData);
         
         // Normalize patient data to match staff structure
-        const normalizedPatients = patientsData.map((patient: any) => ({
-          ...patient,
-          role: 'patient',
-          isActive: true,
-          // Ensure consistent field names
-          firstName: patient.firstName || patient.first_name || '',
-          lastName: patient.lastName || patient.last_name || '',
-          email: patient.email || '',
-          phone: patient.phone || null,
-          dateOfBirth: patient.dateOfBirth || patient.date_of_birth || null,
-          address: patient.address || null,
-          emergencyContact: patient.emergencyContact || patient.emergency_contact || null,
-          emergencyPhone: patient.emergencyPhone || patient.emergency_phone || null,
-          // Ensure consistent ID field
-          id: patient.id || patient.userId || patient.patientId,
-          userId: patient.userId || patient.id || patient.patientId,
-          // Ensure createdAt field is properly handled
-          createdAt: patient.createdAt || patient.created_at || patient.dateCreated || new Date().toISOString()
-        }));
+        const normalizedPatients = patientsData.map((patient: any) => {
+          // Find matching user in usersWithStatus to get correct isActive status
+          const matchingUser = usersWithStatus.find((u: any) => 
+            (u.id === patient.userId) || (u.userId === patient.userId) || 
+            (u.id === patient.id && patient.userId === u.id)
+          );
+          
+          // Use user's isActive status if available, otherwise use patient's isActive or default to true
+          const userIsActive = matchingUser?.isActive !== undefined 
+            ? matchingUser.isActive 
+            : (patient.isActive !== undefined ? patient.isActive : true);
+          
+          console.log('🔍 Patient:', patient.firstName, patient.lastName, 'userId:', patient.userId, 'isActive from user:', matchingUser?.isActive, 'final isActive:', userIsActive);
+          
+          return {
+            ...patient,
+            role: 'patient',
+            isActive: userIsActive, // Use actual user status, not hardcoded true
+            // Ensure consistent field names
+            firstName: patient.firstName || patient.first_name || '',
+            lastName: patient.lastName || patient.last_name || '',
+            email: patient.email || '',
+            phone: patient.phone || null,
+            dateOfBirth: patient.dateOfBirth || patient.date_of_birth || null,
+            address: patient.address || null,
+            emergencyContact: patient.emergencyContact || patient.emergency_contact || null,
+            emergencyPhone: patient.emergencyPhone || patient.emergency_phone || null,
+            // Ensure consistent ID field
+            id: patient.id || patient.userId || patient.patientId,
+            userId: patient.userId || patient.id || patient.patientId,
+            // Ensure createdAt field is properly handled
+            createdAt: patient.createdAt || patient.created_at || patient.dateCreated || new Date().toISOString()
+          };
+        });
         
-        console.log('👥 Normalized patients:', normalizedPatients);
+        console.log('👥 Normalized patients with status:', normalizedPatients);
         allUsers.push(...normalizedPatients);
       } catch (patientsError) {
         console.error('❌ Failed to load patients:', patientsError);
@@ -775,7 +1002,7 @@ const AdminDashboardWrapper: React.FC<{
     try {
       setIsProcessing(true);
       setError('');
-      console.log('Toggling user status:', { userId, isActive });
+      console.log('🔄 [App] Toggling user status:', { userId, isActive });
       
       // Find the user in our local data to get the correct ID
       const user = users.find(u => u.id === userId || u.userId === userId);
@@ -783,15 +1010,47 @@ const AdminDashboardWrapper: React.FC<{
         throw new Error('User not found in local data');
       }
       
-      // Use the correct ID field - try multiple possible ID fields
-      const correctUserId = user.id || user.userId || userId;
-      console.log('Using user ID:', correctUserId, 'for user:', user);
+      // For patients, use the userId (from ApplicationUser table) not the patient ID
+      // For staff, use the userId as well
+      // The API endpoint expects the ApplicationUser ID, not the Patient/Staff ID
+      const correctUserId = user.userId || user.id || userId;
+      console.log('🔄 [App] Using user ID:', correctUserId, 'for user:', user);
+      console.log('🔄 [App] User record:', { id: user.id, userId: user.userId, role: user.role });
       
-      await adminAPI.updateUserStatus(correctUserId, isActive);
-      await loadDashboardData(); // Refresh data
+      // Call the API to update user status using the ApplicationUser ID
+      const response = await adminAPI.updateUserStatus(correctUserId, isActive);
+      
+      // Verify the response
+      if (response && response.isActive !== undefined) {
+        const statusMatches = response.isActive === isActive;
+        console.log('✅ [App] Response received - isActive:', response.isActive, 'Expected:', isActive, 'Matches:', statusMatches);
+        
+        if (!statusMatches) {
+          console.warn('⚠️ [App] Response isActive does not match expected value');
+          // Still continue but log warning
+        }
+      } else {
+        console.warn('⚠️ [App] Response does not contain isActive field');
+      }
+      
+      // Refresh data to get updated user list from backend
+      console.log('🔄 [App] Refreshing dashboard data...');
+      await loadDashboardData();
+      
+      // Verify the change persisted by checking the updated users list
+      // Note: loadDashboardData updates the users state, but we need to wait for the state update
+      // For now, we trust the API response and show success
+      
+      // Show success message
+      alert(`User ${isActive ? 'activated' : 'deactivated'} successfully!`);
+      
+      console.log('✅ [App] User status update completed successfully');
+      console.log('✅ [App] Verified response.isActive === requested isActive:', response.isActive === isActive);
     } catch (error: any) {
-      console.error('Error updating user status:', error);
-      setError(error.response?.data?.error || error.message || 'Failed to update user status');
+      console.error('❌ [App] Error updating user status:', error);
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to update user status';
+      setError(errorMessage);
+      alert(`Failed to ${isActive ? 'activate' : 'deactivate'} user: ${errorMessage}`);
     } finally {
       setIsProcessing(false);
     }
@@ -829,9 +1088,14 @@ const AdminDashboardWrapper: React.FC<{
       
       await adminAPI.updateUser(correctUserId, userData);
       await loadDashboardData(); // Refresh data
+      
+      // Show success message
+      alert('User updated successfully!');
     } catch (error: any) {
       console.error('Error updating user:', error);
-      setError(error.response?.data?.error || error.message || 'Failed to update user');
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to update user';
+      setError(errorMessage);
+      alert(`Failed to update user: ${errorMessage}`);
     } finally {
       setIsProcessing(false);
     }
@@ -1040,7 +1304,6 @@ const AppRoutes: React.FC = () => {
             <Navigate to={
               user?.roles?.includes('admin') ? '/admin-dashboard' :
               user?.roles?.includes('doctor') ? '/doctor-dashboard' :
-              user?.roles?.includes('nurse') ? '/nurse-dashboard' :
               '/patient-dashboard'
             } replace />
           ) : (
@@ -1107,16 +1370,6 @@ const AppRoutes: React.FC = () => {
         }
       />
 
-      <Route
-        path="/nurse-dashboard"
-        element={
-          <ProtectedRoute allowedRoles={['nurse']}>
-            <NurseDashboardWrapper user={user}>
-              {(props) => <NurseDashboard {...props} onLogout={handleLogout} />}
-            </NurseDashboardWrapper>
-          </ProtectedRoute>
-        }
-      />
 
       {/* Fallback Routes */}
       <Route path="/unauthorized" element={

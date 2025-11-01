@@ -421,35 +421,6 @@ const AuthPage: React.FC<AuthPageProps> = ({
                 )}
               </Button>
             </form>
-
-            {/* Demo Credentials */}
-            {isLoginMode && (
-              <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-2">Demo Credentials:</p>
-                <div className="space-y-2 text-xs">
-                  <div className="border-b border-muted pb-2">
-                    <p className="font-medium text-foreground">Patient Login:</p>
-                    <p><strong>Email:</strong> patient@hopewell.com</p>
-                    <p><strong>Password:</strong> Patient@123</p>
-                  </div>
-                  <div className="border-b border-muted pb-2">
-                    <p className="font-medium text-foreground">Doctor Login:</p>
-                    <p><strong>Email:</strong> doctor@hopewell.com</p>
-                    <p><strong>Password:</strong> Doctor@123</p>
-                  </div>
-                  <div className="border-b border-muted pb-2">
-                    <p className="font-medium text-foreground">Nurse Login:</p>
-                    <p><strong>Email:</strong> nurse@hopewell.com</p>
-                    <p><strong>Password:</strong> Nurse@123</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">Admin Login:</p>
-                    <p><strong>Email:</strong> admin@hopewell.com</p>
-                    <p><strong>Password:</strong> Admin@123</p>
-                  </div>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
 

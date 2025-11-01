@@ -41,7 +41,7 @@ export interface User {
   firstName: string;
   lastName: string;
   email: string;
-  role: 'patient' | 'doctor' | 'nurse' | 'admin';
+  role: 'patient' | 'doctor' | 'admin';
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -64,7 +64,7 @@ export interface RegisterData {
   email: string;
   password: string;
   confirmPassword: string;
-  role: 'patient' | 'doctor' | 'nurse';
+  role: 'patient' | 'doctor';
 }
 
 // Form validation types
@@ -262,7 +262,7 @@ export interface StateReducer<T, A extends StateAction<any>> {
 }
 
 // Constants
-export const APP_ROLES = ['patient', 'doctor', 'nurse', 'admin'] as const;
+export const APP_ROLES = ['patient', 'doctor', 'admin'] as const;
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const;
 export const ENVIRONMENTS = ['development', 'staging', 'production'] as const;
 

@@ -1092,9 +1092,38 @@ export const adminAPI = {
 
   updateUserStatus: async (userId, isActive) => {
     try {
-      const response = await api.put(`/Admin/users/${userId}`, { isActive });
+      console.log('🔔 [adminAPI] updateUserStatus called with:', { userId, isActive });
+      console.log('🔔 [adminAPI] Making request to: PUT /Admin/users/' + userId + '/status');
+      console.log('🔔 [adminAPI] Request body:', { isActive });
+      
+      // Use the dedicated status endpoint
+      const response = await api.put(`/Admin/users/${userId}/status`, { isActive });
+      
+      console.log('🔔 [adminAPI] Status update response:', response.data);
+      console.log('🔔 [adminAPI] Response status:', response.status);
+      
+      // Verify the response contains isActive field
+      if (response.data && response.data.isActive !== undefined) {
+        const statusMatches = response.data.isActive === isActive;
+        console.log('🔔 [adminAPI] Response isActive:', response.data.isActive);
+        console.log('🔔 [adminAPI] Expected isActive:', isActive);
+        console.log('🔔 [adminAPI] Status matches:', statusMatches);
+        
+        if (!statusMatches) {
+          console.warn('⚠️ [adminAPI] Response isActive does not match expected value');
+        }
+      } else {
+        console.warn('⚠️ [adminAPI] Response does not contain isActive field');
+      }
+      
       return response.data;
     } catch (error) {
+      console.error('🔔 [adminAPI] updateUserStatus error:', error);
+      console.error('🔔 [adminAPI] Error status:', error.response?.status);
+      console.error('🔔 [adminAPI] Error response:', error.response?.data);
+      
+      // If status endpoint fails, throw error (don't fallback to main endpoint)
+      // This ensures we know when the dedicated endpoint is not working
       throw error.response?.data || error.message;
     }
   },
@@ -1112,7 +1141,7 @@ export const adminAPI = {
     try {
       console.log('🔔 [adminAPI] updateUser called with:', { userId, userData });
       
-      // Ensure all fields are included in the request
+      // Ensure all fields are included in the request, including isActive if provided
       const updateData = {
         firstName: userData.firstName,
         lastName: userData.lastName,
@@ -1123,7 +1152,9 @@ export const adminAPI = {
         emergencyContact: userData.emergencyContact || '',
         emergencyPhone: userData.emergencyPhone || '',
         // Include role if provided (for admin updates)
-        ...(userData.role && { role: userData.role })
+        ...(userData.role && { role: userData.role }),
+        // Include isActive if provided (for status updates via edit)
+        ...(userData.isActive !== undefined && { isActive: userData.isActive })
       };
       
       console.log('🔔 [adminAPI] Sending update data:', updateData);
@@ -1639,7 +1670,7 @@ export const notificationsAPI = {
     }
   },
 
-  // Get staff notifications (for doctors/nurses)
+  // Get staff notifications (for doctors)
   getStaffNotifications: async (staffId) => {
     try {
       const response = await api.get(`/Notifications/staff/${staffId}`);

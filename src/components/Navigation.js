@@ -35,7 +35,6 @@ const Navigation = ({ onMenuClick, user }) => {
     switch (role) {
       case 'patient': return 'Patient';
       case 'doctor': return 'Doctor';
-      case 'nurse': return 'Nurse';
       case 'admin': return 'Administrator';
       default: return 'User';
     }

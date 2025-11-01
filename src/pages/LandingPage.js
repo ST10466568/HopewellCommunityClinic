@@ -39,10 +39,10 @@ const LandingPage = () => {
       image: '👨‍⚕️'
     },
     {
-      name: 'Nurse Emily Davis',
-      role: 'Head Nurse',
-      specialty: 'Patient Care',
-      image: '👩‍⚕️'
+      name: 'Dr. James Wilson',
+      role: 'Senior Physician',
+      specialty: 'Pediatrics',
+      image: '👨‍⚕️'
     }
   ];
 
